@@ -2,8 +2,11 @@
 
 from datetime import datetime
 from pathlib import Path
+import base64
 import json
 import sqlite3
+import shutil
+import tempfile
 
 
 def now():
@@ -13,6 +16,7 @@ def now():
 class Storage:
     def __init__(self, database: Path):
         self.database = database
+        self.media_directory = database.parent / "media"
 
     def connect(self):
         connection = sqlite3.connect(self.database, timeout=15)
@@ -51,11 +55,53 @@ class Storage:
                     # now eligible for delivery when a missing row is repaired.
                     status = "queued"
                     db.execute("INSERT OR IGNORE INTO deliveries(post_id,platform,status,updated_at) VALUES(?,?,?,?)", (post["id"], platform, status, now()))
+        # Migrate legacy base64 media after the schema transaction closes.
+        for row in posts:
+            post = json.loads(row["payload"])
+            if any("data" in item for item in post.get("media", [])):
+                self.put_post(post)
+
+    def _externalize_media(self, post):
+        stored = json.loads(json.dumps(post))
+        directory = self.media_directory / stored["id"]
+        directory.mkdir(parents=True, exist_ok=True)
+        referenced = set()
+        for index, item in enumerate(stored.get("media", [])):
+            filename = f"{index:02d}.bin"
+            path = directory / filename
+            if "data" in item:
+                content = base64.b64decode(item.pop("data"), validate=True)
+                with tempfile.NamedTemporaryFile(dir=directory, delete=False) as temporary:
+                    temporary.write(content)
+                    temporary_path = Path(temporary.name)
+                temporary_path.chmod(0o600)
+                temporary_path.replace(path)
+            elif not path.exists() and item.get("file"):
+                old = self.database.parent / item["file"]
+                if old.is_file():
+                    shutil.copy2(old, path)
+            item["file"] = str(path.relative_to(self.database.parent))
+            referenced.add(path.name)
+        for path in directory.iterdir():
+            if path.is_file() and path.name not in referenced:
+                path.unlink()
+        if not stored.get("media"):
+            shutil.rmtree(directory, ignore_errors=True)
+        return stored
+
+    def _hydrate_media(self, post):
+        hydrated = json.loads(json.dumps(post))
+        for item in hydrated.get("media", []):
+            if "data" not in item and item.get("file"):
+                path = self.database.parent / item["file"]
+                if path.is_file():
+                    item["data"] = base64.b64encode(path.read_bytes()).decode("ascii")
+        return hydrated
 
     def list_posts(self):
         with self.connect() as db:
             rows = db.execute("SELECT payload FROM posts").fetchall()
-        return [json.loads(row["payload"]) for row in rows]
+        return [self._hydrate_media(json.loads(row["payload"])) for row in rows]
 
     def integrity_check(self):
         with self.connect() as db:
@@ -65,9 +111,10 @@ class Storage:
     def get_post(self, post_id):
         with self.connect() as db:
             row = db.execute("SELECT payload FROM posts WHERE id=?", (post_id,)).fetchone()
-        return json.loads(row["payload"]) if row else None
+        return self._hydrate_media(json.loads(row["payload"])) if row else None
 
     def put_post(self, post):
+        post = self._externalize_media(post)
         selected = {key for key, value in post["destinations"].items() if value != "none"}
         with self.connect() as db:
             db.execute("INSERT OR REPLACE INTO posts VALUES (?,?)", (post["id"], json.dumps(post)))
@@ -86,6 +133,7 @@ class Storage:
     def delete_post(self, post_id):
         with self.connect() as db:
             db.execute("DELETE FROM posts WHERE id=?", (post_id,))
+        shutil.rmtree(self.media_directory / post_id, ignore_errors=True)
 
     def due_bluesky(self):
         return self.due_deliveries("bluesky")
@@ -132,6 +180,7 @@ class Storage:
         if not post:
             return False
         post["scheduledFor"] = None
+        post = self._externalize_media(post)
         with self.connect() as db:
             db.execute("UPDATE posts SET payload=? WHERE id=?", (json.dumps(post), post_id))
             db.execute("""UPDATE deliveries SET status='queued',next_attempt_at=NULL,updated_at=?

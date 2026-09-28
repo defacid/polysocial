@@ -68,6 +68,15 @@ class RecoveryTests(unittest.TestCase):
         self.assertIsNone(self.storage.get_post("PS-TEST")["scheduledFor"])
         self.assertEqual("queued", self.storage.list_deliveries("PS-TEST")[0]["status"])
 
+    def test_media_is_stored_outside_sqlite_and_hydrated(self):
+        image = {"name": "one.jpg", "type": "image/jpeg", "data": base64.b64encode(b"image-bytes").decode(), "alt": "Example"}
+        self.storage.put_post(post("PS-MEDIA", media=[image], destinations={"bluesky": "connected"}))
+        with self.storage.connect() as database:
+            payload = json.loads(database.execute("SELECT payload FROM posts WHERE id='PS-MEDIA'").fetchone()[0])
+        self.assertNotIn("data", payload["media"][0])
+        self.assertTrue((Path(self.temporary.name) / payload["media"][0]["file"]).is_file())
+        self.assertEqual(image["data"], self.storage.get_post("PS-MEDIA")["media"][0]["data"])
+
 
 class BackupTests(unittest.TestCase):
     def test_backup_verify_and_restore(self):
@@ -78,11 +87,14 @@ class BackupTests(unittest.TestCase):
             storage = Storage(data / "posts.sqlite3")
             storage.migrate()
             storage.put_post(post())
+            image = {"name": "one.jpg", "type": "image/jpeg", "data": base64.b64encode(b"image-bytes").decode(), "alt": "Example"}
+            storage.put_post(post("PS-MEDIA", media=[image], destinations={"bluesky": "connected"}))
             archive = create_backup(data, root / "backup.tar.gz")
             self.assertFalse(verify_backup(archive)["includesCredentials"])
             storage.delete_post("PS-TEST")
             restore_backup(archive, data)
             self.assertEqual("PS-TEST", storage.list_posts()[0]["id"])
+            self.assertEqual(image["data"], storage.get_post("PS-MEDIA")["media"][0]["data"])
 
     def test_backup_rejects_unsafe_archive(self):
         with tempfile.TemporaryDirectory() as temporary:

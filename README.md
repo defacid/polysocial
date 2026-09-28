@@ -166,6 +166,7 @@ installer. The health endpoint and signed media route remain exempt by design.
 ## Local storage and privacy
 
 - Posts and delivery state: `~/.local/share/polysocial/posts.sqlite3`
+- Attached images: `~/.local/share/polysocial/media/`
 - Encrypted credentials: `~/.local/share/polysocial/credentials/`
 - Optional tunnel token: `~/.local/share/polysocial/cloudflared/tunnel.env`
 
@@ -194,7 +195,7 @@ sudo systemctl start polysocial.service
 ```
 
 Restore preserves the previous database beside the restored copy. The systemd
-installation also writes a verified database-only backup to
+installation also writes a verified posts-and-media backup to
 `~/.local/share/polysocial/backups/latest.tar.gz` each day.
 
 ## Testing

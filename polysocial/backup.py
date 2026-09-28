@@ -31,6 +31,10 @@ def create_backup(data_dir, output, include_credentials=False):
         with sqlite3.connect(database) as source, sqlite3.connect(database_copy) as target:
             source.backup(target)
         files = [database_copy]
+        media = data_dir / "media"
+        if media.exists():
+            shutil.copytree(media, staging / "media")
+            files.extend(path for path in (staging / "media").rglob("*") if path.is_file())
         if include_credentials:
             credentials = data_dir / "credentials"
             if credentials.exists():
@@ -96,6 +100,14 @@ def restore_backup(archive_path, data_dir):
         for suffix in ("-wal", "-shm"):
             Path(str(database) + suffix).unlink(missing_ok=True)
         temporary_db.replace(database)
+        if (root / "media").exists():
+            restored_media = data_dir / ".media.restore"
+            shutil.rmtree(restored_media, ignore_errors=True)
+            shutil.copytree(root / "media", restored_media)
+            shutil.rmtree(data_dir / "media", ignore_errors=True)
+            restored_media.replace(data_dir / "media")
+        else:
+            shutil.rmtree(data_dir / "media", ignore_errors=True)
         if manifest.get("includesCredentials") and (root / "credentials").exists():
             credentials = data_dir / "credentials"
             credentials.mkdir(mode=0o700, exist_ok=True)

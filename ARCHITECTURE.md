@@ -13,7 +13,10 @@ Polysocial is a local-first Python service with a dependency-free browser interf
 
 `queued → publishing → delivered` is the successful path. Transient failures move to `retry` with bounded exponential backoff. After five attempts a delivery becomes `failed`. A process interrupted while `publishing` is conservatively changed to `failed`; Polysocial cannot know whether the remote platform accepted the request, so only the operator can retry it.
 
-Posts are JSON payloads keyed by a stable local ID. Each selected platform has its own delivery row and remote receipt. Editing a post never changes an already delivered row.
+Posts are JSON payloads keyed by a stable local ID. Media is stored as private
+per-post files and hydrated only at the API boundary; legacy inline media is
+migrated automatically. Each selected platform has its own delivery row and
+remote receipt. Editing a post never changes an already delivered row.
 
 ## Trust boundaries
 
