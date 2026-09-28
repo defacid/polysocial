@@ -75,6 +75,7 @@ class RecoveryTests(unittest.TestCase):
             payload = json.loads(database.execute("SELECT payload FROM posts WHERE id='PS-MEDIA'").fetchone()[0])
         self.assertNotIn("data", payload["media"][0])
         self.assertTrue((Path(self.temporary.name) / payload["media"][0]["file"]).is_file())
+        self.assertEqual(0o700, (Path(self.temporary.name) / "media" / "PS-MEDIA").stat().st_mode & 0o777)
         self.assertEqual(image["data"], self.storage.get_post("PS-MEDIA")["media"][0]["data"])
 
 

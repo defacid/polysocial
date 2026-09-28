@@ -27,6 +27,10 @@ class Storage:
 
     def migrate(self):
         self.database.parent.mkdir(exist_ok=True)
+        self.media_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.media_directory.chmod(0o700)
+        for directory in (path for path in self.media_directory.rglob("*") if path.is_dir()):
+            directory.chmod(0o700)
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
@@ -64,7 +68,9 @@ class Storage:
     def _externalize_media(self, post):
         stored = json.loads(json.dumps(post))
         directory = self.media_directory / stored["id"]
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.media_directory.chmod(0o700)
+        directory.chmod(0o700)
         referenced = set()
         for index, item in enumerate(stored.get("media", [])):
             filename = f"{index:02d}.bin"
