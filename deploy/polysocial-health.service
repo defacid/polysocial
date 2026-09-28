@@ -1,0 +1,9 @@
+[Unit]
+Description=Polysocial local health check
+After=polysocial.service
+OnFailure=polysocial-recover.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 5 http://127.0.0.1:@PORT@/api/status
+ExecStartPost=/bin/true

@@ -1,0 +1,17 @@
+[Unit]
+Description=Cloudflare Tunnel for Polysocial
+After=network-online.target polysocial.service
+Wants=network-online.target
+Requires=polysocial.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+WorkingDirectory=@PROJECT_DIR@
+Environment=POLYSOCIAL_DATA_DIR=@DATA_DIR@
+ExecStart="@PROJECT_DIR@/run-cloudflared.sh"
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+# Polysocial runtime state and downloaded executables
+.local-data/
+.local-tools/
+
+# Credentials and local configuration (defense in depth)
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+*.vault
+*.dpapi
+.vault-key
+*token*
+*secret*
+*.pem
+*.key
+*.p12
+
+# Databases, logs, and Python artifacts
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

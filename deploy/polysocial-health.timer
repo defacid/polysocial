@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Polysocial every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=polysocial-health.service
+
+[Install]
+WantedBy=timers.target

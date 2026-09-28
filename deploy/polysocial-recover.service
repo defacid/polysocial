@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart an unresponsive Polysocial service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart polysocial.service
