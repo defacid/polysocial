@@ -1,0 +1,10 @@
+.git
+.github
+.local-data
+.local-tools
+.venv
+__pycache__
+*.pyc
+*.sqlite*
+*.env
+install.env

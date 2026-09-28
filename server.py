@@ -4,6 +4,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
+from datetime import datetime, timedelta, timezone
 import argparse
 import json
 import re
@@ -18,6 +19,7 @@ from polysocial.storage import Storage
 from polysocial.vault import CredentialVault, VaultError
 from polysocial.worker import DeliveryWorker
 from polysocial.media_urls import valid_signature
+from polysocial.validation import validate_post
 
 
 DATA_DIR = Path(os.environ.get("POLYSOCIAL_DATA_DIR", Path.home() / ".local" / "share" / "polysocial")).expanduser().resolve()
@@ -26,6 +28,8 @@ POST_ID = re.compile(r"^PS-[A-Z0-9-]{1,40}$")
 STORAGE = Storage(DATABASE)
 VAULT = CredentialVault(DATA_DIR / "credentials")
 PUBLIC_ORIGIN = os.environ.get("POLYSOCIAL_PUBLIC_ORIGIN", "").rstrip("/")
+AUTH_FILE = os.environ.get("POLYSOCIAL_AUTH_FILE", "").strip()
+VERSION = "0.1.0"
 PUBLIC_FILES = {
     "/", "/index.html", "/app.js", "/overrides.js", "/styles.css",
     "/polysocial-brand.svg", "/defacid-logo-black.png",
@@ -44,7 +48,49 @@ def initialize_database():
         connection.execute("INSERT INTO meta VALUES ('seeded', 'true')")
 
 
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def token_dates(expires_in):
+    connected = utc_now()
+    try:
+        expires = connected + timedelta(seconds=int(expires_in)) if expires_in else None
+    except (TypeError, ValueError):
+        expires = None
+    return {"connectedAt": connected.isoformat(), "expiresAt": expires.isoformat() if expires else None}
+
+
+def connection_summaries():
+    result = []
+    for row in STORAGE.connections():
+        credentials = VAULT.get(row["platform"]) or {}
+        expires_at = credentials.get("expiresAt")
+        health = "connected"
+        if expires_at:
+            remaining = datetime.fromisoformat(expires_at) - utc_now()
+            health = "expired" if remaining.total_seconds() <= 0 else ("expiring" if remaining <= timedelta(days=7) else "connected")
+        result.append({**row, "health": health, "expires_at": expires_at, "last_checked_at": credentials.get("lastCheckedAt")})
+    return result
+
+
 class PreviewHandler(SimpleHTTPRequestHandler):
+    def authorized(self):
+        if not AUTH_FILE or self.api_path() == "/api/status" or self.api_path().startswith("/api/media/"):
+            return True
+        try:
+            expected = "Basic " + base64.b64encode(Path(AUTH_FILE).read_bytes().strip()).decode("ascii")
+        except OSError:
+            self.send_error(503, "Authentication configuration is unavailable")
+            return False
+        if secrets.compare_digest(self.headers.get("Authorization", ""), expected):
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Polysocial", charset="UTF-8"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def redirect(self, location):
         self.send_response(302)
         self.send_header("Location", location)
@@ -78,6 +124,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         return json.loads(self.rfile.read(length))
 
     def do_GET(self):
+        if not self.authorized():
+            return
         path = self.api_path()
         if path.startswith("/api/media/"):
             try:
@@ -164,7 +212,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 token, expires_in = client.long_lived_token(client.exchange_code(code, oauth["redirectUri"]))
                 profile = client.profile(token)
                 username = profile.get("username") or profile.get("id")
-                VAULT.set("threads", {"userId": profile.get("id"), "username": profile.get("username"), "accessToken": token, "expiresIn": expires_in, "appId": config["appId"], "appSecret": config["appSecret"]})
+                VAULT.set("threads", {"userId": profile.get("id"), "username": profile.get("username"), "accessToken": token, "expiresIn": expires_in, "appId": config["appId"], "appSecret": config["appSecret"], **token_dates(expires_in)})
                 STORAGE.set_connection("threads", f"@{username}")
                 VAULT.delete("threads-oauth")
                 self.redirect("/?threads=connected")
@@ -175,9 +223,9 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         elif path == "/api/status":
             connections = {row["platform"]: row for row in STORAGE.connections()}
             bluesky = connections.get("bluesky")
-            self.api_response(200, {"service": "ready", "deliveryEnabled": STORAGE.setting("delivery_enabled", False), "vaultAvailable": VAULT.available, "bluesky": {"configured": bool(bluesky), "handle": bluesky["display_name"] if bluesky else None}})
+            self.api_response(200, {"service": "ready", "version": VERSION, "database": STORAGE.integrity_check(), "deliveryEnabled": STORAGE.setting("delivery_enabled", False), "vaultAvailable": VAULT.available, "bluesky": {"configured": bool(bluesky), "handle": bluesky["display_name"] if bluesky else None}})
         elif path == "/api/connections":
-            self.api_response(200, {"vaultAvailable": VAULT.available, "deliveryEnabled": STORAGE.setting("delivery_enabled", False), "connections": STORAGE.connections()})
+            self.api_response(200, {"vaultAvailable": VAULT.available, "deliveryEnabled": STORAGE.setting("delivery_enabled", False), "connections": connection_summaries()})
         elif path == "/api/config":
             meta = VAULT.get("meta-app") or {}
             threads = VAULT.get("threads-app") or {}
@@ -201,6 +249,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_PUT(self):
+        if not self.authorized():
+            return
         path = self.api_path()
         if path == "/api/connections/meta/config":
             try:
@@ -274,7 +324,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                     raise ThreadsError("Threads could not validate this access token")
                 username = profile.get("username") or profile["id"]
                 VAULT.set("threads-app", {"appId": app_id, "appSecret": app_secret})
-                VAULT.set("threads", {"userId": profile["id"], "username": profile.get("username"), "accessToken": token, "expiresIn": expires_in, "appId": app_id, "appSecret": app_secret})
+                VAULT.set("threads", {"userId": profile["id"], "username": profile.get("username"), "accessToken": token, "expiresIn": expires_in, "appId": app_id, "appSecret": app_secret, **token_dates(expires_in)})
                 STORAGE.set_connection("threads", f"@{username}")
                 self.api_response(200, {"displayName": f"@{username}"})
             except (ValueError, json.JSONDecodeError) as error:
@@ -292,11 +342,12 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 page = next((item for item in pending["pages"] if str(item.get("id")) == page_id), None)
                 if not page or not page.get("access_token"):
                     raise ValueError("Select an authorized Facebook Page")
-                VAULT.set("facebook", {"pageId": page["id"], "pageName": page["name"], "accessToken": page["access_token"]})
+                dates = token_dates(None)
+                VAULT.set("facebook", {"pageId": page["id"], "pageName": page["name"], "accessToken": page["access_token"], **dates})
                 STORAGE.set_connection("facebook", page["name"])
                 instagram = page.get("instagram_business_account")
                 if instagram:
-                    VAULT.set("instagram", {"userId": instagram["id"], "username": instagram.get("username"), "accessToken": page["access_token"]})
+                    VAULT.set("instagram", {"userId": instagram["id"], "username": instagram.get("username"), "accessToken": page["access_token"], **dates})
                     STORAGE.set_connection("instagram", f"@{instagram.get('username')}" if instagram.get("username") else instagram["id"])
                 VAULT.delete("meta-pending")
                 self.api_response(200, {"facebook": page["name"], "instagram": instagram})
@@ -316,7 +367,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                     raise ValueError("Handle, app password, and an HTTPS service are required")
                 client = BlueskyClient(handle, password, service)
                 client.login(auth_factor_token or None)
-                VAULT.set("bluesky", {"handle": handle, "refreshToken": client.refresh_token, "service": service})
+                VAULT.set("bluesky", {"handle": handle, "refreshToken": client.refresh_token, "service": service, **token_dates(None)})
                 STORAGE.set_connection("bluesky", f"@{handle}")
                 STORAGE.requeue_platform("bluesky")
                 self.api_response(200, {"platform": "bluesky", "displayName": f"@{handle}", "status": "connected"})
@@ -337,6 +388,48 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError) as error:
                 self.api_response(400, {"error": str(error)})
             return
+        if path.startswith("/api/connections/") and path.endswith("/test"):
+            platform = path.split("/")[3]
+            credentials = VAULT.get(platform)
+            if platform not in {"bluesky", "facebook", "instagram", "threads"} or not credentials:
+                self.api_response(404, {"error": "Connection not found"})
+                return
+            try:
+                if platform == "bluesky":
+                    client = BlueskyClient(credentials["handle"], service=credentials.get("service", "https://bsky.social"))
+                    client.resume(credentials["refreshToken"])
+                    credentials["refreshToken"] = client.refresh_token
+                elif platform in {"facebook", "instagram"}:
+                    identifier = credentials.get("pageId") or credentials.get("userId")
+                    MetaClient("", "")._get(f"/{identifier}", {"fields": "id", "access_token": credentials["accessToken"]})
+                else:
+                    ThreadsClient(credentials.get("appId", ""), credentials.get("appSecret", "")).profile(credentials["accessToken"])
+                credentials["lastCheckedAt"] = utc_now().isoformat()
+                VAULT.set(platform, credentials)
+                self.api_response(200, {"platform": platform, "health": "connected", "checkedAt": credentials["lastCheckedAt"]})
+            except (BlueskyError, MetaError, ThreadsError, VaultError, KeyError) as error:
+                self.api_response(401, {"error": str(error)})
+            return
+        if path.startswith("/api/deliveries/"):
+            parts = path.split("/")
+            if len(parts) != 5 or not POST_ID.fullmatch(parts[3]) or parts[4] not in {"bluesky", "facebook", "instagram", "threads"}:
+                self.api_response(400, {"error": "Invalid delivery"})
+                return
+            try:
+                action = self.read_json(4096).get("action")
+            except (ValueError, json.JSONDecodeError):
+                self.api_response(400, {"error": "Invalid action"})
+                return
+            changed = STORAGE.retry_delivery(parts[3], parts[4]) if action == "retry" else STORAGE.cancel_delivery(parts[3], parts[4]) if action == "cancel" else False
+            self.api_response(200, {"changed": changed}) if changed else self.api_response(409, {"error": "Delivery cannot perform that action"})
+            return
+        if path.startswith("/api/posts/") and path.endswith("/publish-now"):
+            post_id = path.split("/")[3]
+            if not POST_ID.fullmatch(post_id) or not STORAGE.publish_now(post_id):
+                self.api_response(404, {"error": "Post not found"})
+            else:
+                self.api_response(200, {"id": post_id})
+            return
         if not path.startswith("/api/posts/"):
             self.api_response(404, {"error": "Not found"})
             return
@@ -350,8 +443,12 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 self.api_response(413, {"error": "Post is too large"})
                 return
             post = json.loads(self.rfile.read(length))
-            if post.get("id") != post_id or not isinstance(post.get("text"), str) or not isinstance(post.get("destinations"), dict) or not isinstance(post.get("media"), list):
+            if post.get("id") != post_id:
                 raise ValueError("Invalid post")
+            errors = validate_post(post)
+            if errors:
+                self.api_response(422, {"error": errors[0], "errors": errors})
+                return
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
             self.api_response(400, {"error": "Invalid post"})
             return
@@ -359,6 +456,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.api_response(200, {"id": post_id})
 
     def do_DELETE(self):
+        if not self.authorized():
+            return
         path = self.api_path()
         if path == "/api/connections/bluesky":
             VAULT.delete("bluesky")
@@ -390,6 +489,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.api_response(204)
 
     def send_head(self):
+        if not self.authorized():
+            return None
         path = unquote(self.api_path())
         if not is_public_asset(path):
             self.send_error(404)
@@ -406,18 +507,23 @@ class PreviewHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' https://www.facebook.com https://threads.net")
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         super().end_headers()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=5500)
+    parser.add_argument("--bind", default=os.environ.get("POLYSOCIAL_BIND", "127.0.0.1"), help="Address to listen on (default: localhost only)")
     args = parser.parse_args()
     initialize_database()
     worker = DeliveryWorker(STORAGE, VAULT)
     worker.start()
     handler = partial(PreviewHandler, directory=str(Path(__file__).resolve().parent))
-    with ThreadingHTTPServer(("0.0.0.0", args.port), handler) as server:
+    with ThreadingHTTPServer((args.bind, args.port), handler) as server:
         print(f"Polysocial local service: http://127.0.0.1:{args.port}/", flush=True)
         server.serve_forever()
 

@@ -36,6 +36,11 @@ class Storage:
                 updated_at TEXT NOT NULL, PRIMARY KEY(post_id, platform),
                 FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)""")
             db.execute("UPDATE deliveries SET status='not_implemented',updated_at=? WHERE status='waiting_for_crosspost'", (now(),))
+            # A process can die after sending a request but before recording its
+            # receipt. Never auto-resend these ambiguous deliveries: doing so can
+            # create duplicate public posts. Let the operator inspect and retry.
+            db.execute("""UPDATE deliveries SET status='failed',error=?,next_attempt_at=NULL,updated_at=?
+                WHERE status='publishing'""", ("Publishing was interrupted; verify the platform before retrying.", now()))
             posts = db.execute("SELECT payload FROM posts").fetchall()
             for row in posts:
                 post = json.loads(row["payload"])
@@ -51,6 +56,11 @@ class Storage:
         with self.connect() as db:
             rows = db.execute("SELECT payload FROM posts").fetchall()
         return [json.loads(row["payload"]) for row in rows]
+
+    def integrity_check(self):
+        with self.connect() as db:
+            row = db.execute("PRAGMA integrity_check").fetchone()
+        return row[0] if row else "unknown"
 
     def get_post(self, post_id):
         with self.connect() as db:
@@ -103,6 +113,30 @@ class Storage:
         assignments = ",".join(f"{key}=?" for key in fields)
         with self.connect() as db:
             db.execute(f"UPDATE deliveries SET {assignments} WHERE post_id=? AND platform=?", (*fields.values(), post_id, platform))
+
+    def retry_delivery(self, post_id, platform):
+        with self.connect() as db:
+            cursor = db.execute("""UPDATE deliveries SET status='queued',attempts=0,next_attempt_at=NULL,
+                error=NULL,updated_at=? WHERE post_id=? AND platform=? AND status IN ('failed','retry','cancelled')""",
+                (now(), post_id, platform))
+        return cursor.rowcount == 1
+
+    def cancel_delivery(self, post_id, platform):
+        with self.connect() as db:
+            cursor = db.execute("""UPDATE deliveries SET status='cancelled',next_attempt_at=NULL,updated_at=?
+                WHERE post_id=? AND platform=? AND status IN ('queued','retry')""", (now(), post_id, platform))
+        return cursor.rowcount == 1
+
+    def publish_now(self, post_id):
+        post = self.get_post(post_id)
+        if not post:
+            return False
+        post["scheduledFor"] = None
+        with self.connect() as db:
+            db.execute("UPDATE posts SET payload=? WHERE id=?", (json.dumps(post), post_id))
+            db.execute("""UPDATE deliveries SET status='queued',next_attempt_at=NULL,updated_at=?
+                WHERE post_id=? AND status IN ('queued','retry','cancelled')""", (now(), post_id))
+        return True
 
     def list_deliveries(self, post_id=None):
         with self.connect() as db:

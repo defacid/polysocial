@@ -60,10 +60,13 @@ window.addEventListener('DOMContentLoaded', () => {
     .queue-status::after{position:absolute;right:-4px;bottom:-4px;width:11px;height:11px;border-radius:50%;display:grid;place-items:center;font-size:8px;background:#39d99b;color:#fff;content:"✓";box-shadow:0 0 0 2px #0b2860}
     .queue-status.delivery-queued::after,.queue-status.delivery-publishing::after{content:"…";background:#f0ad3d;color:#071943}
     .queue-status.delivery-retry::after,.queue-status.delivery-failed::after{content:"!";background:#e85b5b;color:#fff}
+    .queue-status.delivery-cancelled::after{content:"–";background:#7184ad;color:#fff}
     .queue-status.delivery-not_implemented::after{content:"–";background:#7184ad;color:#fff}
     .queue-status.none::after{content:"⛔";background:#e85b5b;font-size:7px}
     .history-card{border:1px solid #7299ef66;border-radius:12px;background:#0b2860;overflow:hidden}.history-card>summary{list-style:none;cursor:pointer}.history-card>summary::-webkit-details-marker{display:none}.history-card .scheduled-post{border:0;border-radius:0;margin:0;width:100%}.history-card .queue-status:not(.delivery-delivered)::after{content:"×";background:#e85b5b;color:#fff}.history-expand{width:24px;height:24px;display:grid;place-items:center;color:#b8caff}.history-expand::before{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg);transition:transform .18s ease}.history-card[open] .history-expand::before{transform:rotate(225deg)}
     .history-deliveries{display:grid;gap:1px;padding:7px 12px 12px 79px;border-top:1px solid #7299ef44}.history-delivery{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:39px;padding:4px 0;color:#dce7ff;font:600 12px Manrope,sans-serif}.history-delivery+.history-delivery{border-top:1px solid #7299ef2e}.history-delivery .queue-status{width:25px;height:25px}.history-delivery a{color:#fff;font-weight:800;text-underline-offset:3px}.history-result{color:#b8caff;text-transform:capitalize}.history-result.failed{color:#ff9dac}
+    .delivery-action,.post-action{border:1px solid #7299ef;border-radius:6px;padding:5px 7px;background:#17438f;color:#fff;font:800 10px Manrope,sans-serif;cursor:pointer}.post-action{font-size:9px}.connection-health{margin-left:8px;color:#637bac;font-size:10px}.connection-health.expiring,.connection-health.expired{color:#a5233e}
+    .setting-line{justify-content:flex-start;gap:7px}.setting-line>span:first-child{margin-right:auto}.setting-test{border:0;background:#edf3ff;color:#31589d;border-radius:6px;padding:7px 8px;font:700 10px Manrope;cursor:pointer}
     .calendar-dialog{border:0;border-radius:16px;padding:25px;max-width:420px;width:calc(100vw - 32px);color:#10295c}
     .calendar-dialog::backdrop{background:#000b}
     .calendar-close{position:absolute;right:11px;top:7px;border:0;background:none;font-size:24px;cursor:pointer}
@@ -80,7 +83,11 @@ window.addEventListener('DOMContentLoaded', () => {
 
   async function api(path, options = {}) {
     const response = await fetch(path, {cache: 'no-store', ...options});
-    if (!response.ok) throw new Error(`Queue request failed: ${response.status}`);
+    if (!response.ok) {
+      let message = `Request failed: ${response.status}`;
+      try { message = (await response.json()).error || message; } catch {}
+      throw new Error(message);
+    }
     return response.status === 204 ? null : response.json();
   }
 
@@ -89,6 +96,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const readPost = id => api(`/api/posts/${encodeURIComponent(id)}`);
   const writePost = post => api(`/api/posts/${encodeURIComponent(post.id)}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(post)});
   const deletePost = id => api(`/api/posts/${encodeURIComponent(id)}`, {method: 'DELETE'});
+  const deliveryAction = (postId, platform, action) => api(`/api/deliveries/${encodeURIComponent(postId)}/${platform}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action})});
 
   function fileData(file) {
     return new Promise((resolve, reject) => {
@@ -99,9 +107,9 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  async function serializeMedia(file) {
+  async function serializeMedia(file, alt = '') {
     if (!file.type.startsWith('image/') || file.type === 'image/jpeg') {
-      return {name: file.name, type: file.type, data: await fileData(file)};
+      return {name: file.name, type: file.type, data: await fileData(file), alt};
     }
     // Instagram's publishing API accepts JPEG images only. Keep previews in
     // their original format, then normalize the stored copy once on save.
@@ -117,10 +125,10 @@ window.addEventListener('DOMContentLoaded', () => {
       bitmap.close();
       const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Image conversion failed')), 'image/jpeg', 0.92));
       const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
-      return {name, type: 'image/jpeg', data: await fileData(blob)};
+      return {name, type: 'image/jpeg', data: await fileData(blob), alt};
     } catch (error) {
       console.warn('Could not normalize image for Instagram', error);
-      return {name: file.name, type: file.type, data: await fileData(file)};
+      return {name: file.name, type: file.type, data: await fileData(file), alt};
     }
   }
 
@@ -243,6 +251,10 @@ window.addEventListener('DOMContentLoaded', () => {
         const input = document.querySelector('#mediaInput');
         input.files = transfer.files;
         input.dispatchEvent(new Event('change', {bubbles: true}));
+        [...preview.children].forEach((card, index) => {
+          card._alt = post.media[index]?.alt || '';
+          card.querySelector('.alt-media')?.classList.toggle('complete', Boolean(card._alt));
+        });
       }
       setBanner(post);
       publish.querySelector('span').textContent = 'Save';
@@ -318,7 +330,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function isHistoryPost(post) {
     const results = postDeliveries(post);
-    return results.length > 0 && results.every(delivery => ['delivered', 'failed', 'not_implemented', 'skipped'].includes(delivery.status));
+    return results.length > 0 && results.every(delivery => ['delivered', 'failed', 'cancelled', 'not_implemented', 'skipped'].includes(delivery.status));
   }
 
   function makePostCard(post, history = false) {
@@ -368,6 +380,21 @@ window.addEventListener('DOMContentLoaded', () => {
         expand.setAttribute('aria-hidden', 'true');
         controls.append(expand);
       } else {
+        const publishNow = document.createElement('button');
+        publishNow.type = 'button';
+        publishNow.className = 'post-action';
+        publishNow.textContent = 'Now';
+        publishNow.title = 'Publish this scheduled post now';
+        publishNow.addEventListener('click', async event => {
+          event.stopPropagation();
+          try {
+            await api(`/api/posts/${encodeURIComponent(post.id)}/publish-now`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: '{}'});
+            [posts, deliveries] = await Promise.all([readPosts(), readDeliveries()]);
+            renderQueue();
+            showToast(`${post.id} is ready to publish now.`);
+          } catch (error) { showToast(error.message); }
+        });
+        controls.append(publishNow);
         const more = document.createElement('button');
         more.type = 'button';
         more.className = 'more';
@@ -413,6 +440,32 @@ window.addEventListener('DOMContentLoaded', () => {
         if (delivery.error) result.title = delivery.error;
         row.append(result);
       }
+      if (['failed', 'retry', 'cancelled'].includes(delivery.status)) {
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'delivery-action';
+        retry.textContent = 'Retry';
+        retry.addEventListener('click', async () => {
+          if (!confirm(`Retry only ${delivery.platform}? Check the platform first to avoid a duplicate post.`)) return;
+          try {
+            await deliveryAction(post.id, delivery.platform, 'retry');
+            deliveries = await readDeliveries();
+            renderQueue();
+            showToast(`${delivery.platform} delivery queued.`);
+          } catch (error) { showToast(error.message); }
+        });
+        row.append(retry);
+      } else if (['queued', 'retry'].includes(delivery.status)) {
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'delivery-action';
+        cancel.textContent = 'Cancel';
+        cancel.addEventListener('click', async () => {
+          try { await deliveryAction(post.id, delivery.platform, 'cancel'); deliveries = await readDeliveries(); renderQueue(); }
+          catch (error) { showToast(error.message); }
+        });
+        row.append(cancel);
+      }
       list.append(row);
     }
     details.append(summary, list);
@@ -447,7 +500,7 @@ window.addEventListener('DOMContentLoaded', () => {
       const id = editingId || `PS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
       const media = await Promise.all([...preview.children].map(async card => {
         const file = card._file;
-        return file ? await serializeMedia(file) : null;
+        return file ? await serializeMedia(file, card._alt || '') : null;
       }));
       const post = {id, text: text.value, destinations: selections, scheduledFor, createdAt: oldPost?.createdAt || new Date().toISOString(), media: media.filter(Boolean)};
       await writePost(post);
@@ -455,7 +508,7 @@ window.addEventListener('DOMContentLoaded', () => {
       renderQueue();
       resetComposer();
       showToast(`${oldPost ? 'Saved' : 'Queued'} post ${id} locally.`);
-    } catch (error) { console.error(error); showToast('Could not save this post locally.'); }
+    } catch (error) { console.error(error); showToast(error.message || 'Could not save this post locally.'); }
   }
 
   function showQueueCalendar(kind = 'scheduled') {
@@ -689,6 +742,18 @@ window.addEventListener('DOMContentLoaded', () => {
     const response = await fetch('/api/connections', {cache: 'no-store'});
     if (!response.ok) return;
     const result = await response.json();
+    for (const connection of result.connections) {
+      const row = document.querySelector(`.setting-edit[data-platform="${connection.platform}"]`)?.closest('.setting-line');
+      if (!row) continue;
+      let health = row.querySelector('.connection-health');
+      if (!health) {
+        health = document.createElement('span');
+        health.className = 'connection-health';
+        row.querySelector('span').append(health);
+      }
+      health.className = `connection-health ${connection.health || ''}`;
+      health.textContent = connection.health === 'expired' ? 'Token expired' : connection.health === 'expiring' ? 'Token expires soon' : connection.last_checked_at ? 'Connection verified' : '';
+    }
     const bluesky = result.connections.find(connection => connection.platform === 'bluesky');
     for (const platform of ['facebook', 'instagram', 'threads']) {
       const connection = result.connections.find(item => item.platform === platform);
@@ -755,6 +820,22 @@ window.addEventListener('DOMContentLoaded', () => {
     await refreshConnections(dialog);
     dialog.showModal();
   }));
+
+  document.querySelectorAll('.setting-line').forEach(row => {
+    const edit = row.querySelector('.setting-edit[data-platform]');
+    if (!edit) return;
+    const test = document.createElement('button');
+    test.type = 'button';
+    test.className = 'setting-test';
+    test.textContent = 'Test';
+    test.addEventListener('click', async () => {
+      test.disabled = true;
+      try { await api(`/api/connections/${edit.dataset.platform}/test`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: '{}'}); showToast(`${edit.dataset.platform} connection is healthy.`); await refreshConnections(); }
+      catch (error) { showToast(error.message); }
+      finally { test.disabled = false; }
+    });
+    row.insertBefore(test, edit);
+  });
 
   async function initialize() {
     try {

@@ -51,6 +51,13 @@ class ThreadsClient:
         result = self._request(f"{self.graph}/access_token?{query}")
         return result.get("access_token", short_token), result.get("expires_in")
 
+    def refresh_token(self, token):
+        query = urlencode({"grant_type": "th_refresh_token", "access_token": token})
+        result = self._request(f"{self.graph}/refresh_access_token?{query}")
+        if not result.get("access_token"):
+            raise ThreadsError("Threads did not return a refreshed token")
+        return result["access_token"], result.get("expires_in")
+
     def profile(self, token):
         query = urlencode({"fields": "id,username", "access_token": token})
         return self._request(f"{self.graph}/me?{query}")

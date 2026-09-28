@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up Polysocial local data
+
+[Service]
+Type=oneshot
+User=@SERVICE_USER@
+WorkingDirectory=@PROJECT_DIR@
+ExecStart=/usr/bin/python3 -m polysocial.backup --data-dir @DATA_DIR@ --output @DATA_DIR@/backups/latest.tar.gz

@@ -7,6 +7,20 @@ from polysocial.threads import ThreadsClient
 
 
 class ThreadsTests(unittest.TestCase):
+    def test_refresh_uses_threads_refresh_grant(self):
+        calls = []
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        def opener(request, timeout=0):
+            calls.append(request)
+            return Response(b'{"access_token":"new-token","expires_in":5184000}')
+        token, expires = ThreadsClient("123", "secret", opener=opener).refresh_token("old-token")
+        query = parse_qs(urlsplit(calls[0].full_url).query)
+        self.assertEqual(token, "new-token")
+        self.assertEqual(expires, 5184000)
+        self.assertEqual(query["grant_type"], ["th_refresh_token"])
+
     def test_authorization_is_separate_and_requests_publish(self):
         url = ThreadsClient("123", "secret").authorization_url("https://example.test/threads", "state-value")
         query = parse_qs(urlsplit(url).query)

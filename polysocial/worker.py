@@ -1,6 +1,6 @@
 """Restart-safe local delivery loop."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import threading
@@ -81,6 +81,14 @@ class DeliveryWorker(threading.Thread):
             return media_id, permalink, {"id": media_id}
         if platform == "threads":
             client = ThreadsClient(credentials.get("appId", ""), credentials.get("appSecret", ""))
+            expires_at = credentials.get("expiresAt")
+            if expires_at and datetime.fromisoformat(expires_at) - datetime.now(timezone.utc) <= timedelta(days=7):
+                token, expires_in = client.refresh_token(credentials["accessToken"])
+                credentials["accessToken"] = token
+                credentials["expiresIn"] = expires_in
+                credentials["expiresAt"] = (datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))).isoformat() if expires_in else None
+                credentials["lastCheckedAt"] = datetime.now(timezone.utc).isoformat()
+                self.vault.set("threads", credentials)
             ids, permalink = client.publish(credentials["userId"], credentials["accessToken"], text, image_urls)
             return ids[0], permalink, ids
         raise RuntimeError(f"Unsupported destination: {platform}")

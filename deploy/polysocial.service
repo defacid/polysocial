@@ -9,9 +9,16 @@ User=@SERVICE_USER@
 WorkingDirectory=@PROJECT_DIR@
 Environment=POLYSOCIAL_PUBLIC_ORIGIN=@PUBLIC_ORIGIN@
 Environment=POLYSOCIAL_DATA_DIR=@DATA_DIR@
-ExecStart=/usr/bin/python3 "@PROJECT_DIR@/server.py" --port @PORT@
+Environment=POLYSOCIAL_AUTH_FILE=@AUTH_FILE@
+ExecStart=/usr/bin/python3 "@PROJECT_DIR@/server.py" --bind @BIND@ --port @PORT@
 Restart=always
 RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@DATA_DIR@
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

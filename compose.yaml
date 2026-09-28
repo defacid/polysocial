@@ -1,0 +1,13 @@
+services:
+  polysocial:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5500:5500"
+    volumes:
+      - polysocial-data:/data
+    environment:
+      POLYSOCIAL_PUBLIC_ORIGIN: ${POLYSOCIAL_PUBLIC_ORIGIN:-}
+
+volumes:
+  polysocial-data:

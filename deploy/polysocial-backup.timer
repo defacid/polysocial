@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up Polysocial daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+Unit=polysocial-backup.service
+
+[Install]
+WantedBy=timers.target

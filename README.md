@@ -8,7 +8,7 @@ Threads, and Bluesky.
 There are no Polysocial user accounts and no hosted Polysocial database. Posts,
 media, schedules, tokens, and receipts stay on the computer running the app.
 
-> **Project status:** early alpha. Use test accounts and review queued content.
+> **Project status:** v0.1 alpha. Use test accounts and review queued content.
 > Social APIs and their approval requirements change frequently.
 
 ## Features
@@ -20,6 +20,10 @@ media, schedules, tokens, and receipts stay on the computer running the app.
 - Multiple attachments with previews, removal, and drag-to-reorder
 - Scheduled queue, calendars, delivery history, and per-platform receipts
 - Encrypted local credential vault
+- Connection health checks and proactive Threads token refresh
+- Verified backups, daily backup timer, and safe restore tooling
+- Per-platform retry/cancel controls and interrupted-delivery recovery
+- Per-image alt text and platform-aware media validation
 - Responsive keyboard-accessible interface
 - Locally vendored Font Awesome icons
 
@@ -35,7 +39,7 @@ media, schedules, tokens, and receipts stay on the computer running the app.
 ## Quick start
 
 ```bash
-git clone https://github.com/YOUR-ACCOUNT/polysocial.git
+git clone https://github.com/defacid/polysocial.git
 cd polysocial
 python3 -m venv .venv
 . .venv/bin/activate
@@ -48,6 +52,10 @@ state is created under `~/.local/share/polysocial/`, outside the checkout.
 
 Scheduling is local: the Python service must remain running when a post becomes
 due. Closing the browser does not stop an installed service.
+
+The server listens only on `127.0.0.1` by default. Use `--bind 0.0.0.0` only
+when you intentionally need another machine or container to reach it and have
+placed an authentication layer in front of it.
 
 ## Platform setup
 
@@ -98,7 +106,35 @@ sudo ./deploy/install-services.sh
 ```
 
 The installer discovers the checkout path and current user; it does not assume
-a particular home directory. It also locks down local data permissions.
+a particular home directory. It also locks down local data permissions and
+enables health checks and daily database backups.
+
+### Upgrade or uninstall
+
+Upgrade without changing local data:
+
+```bash
+git pull --ff-only
+. .venv/bin/activate
+python3 -m pip install -r requirements.txt
+sudo ./deploy/install-services.sh
+```
+
+Remove the services while preserving all posts and credentials:
+
+```bash
+sudo ./deploy/uninstall-services.sh
+```
+
+### Docker Compose
+
+```bash
+docker compose up -d --build
+```
+
+Compose publishes the app on localhost only and stores state in the named
+`polysocial-data` volume. Set `POLYSOCIAL_PUBLIC_ORIGIN` in a local `.env` file
+when Meta needs to retrieve signed media URLs.
 
 ## Optional Cloudflare Tunnel
 
@@ -122,6 +158,11 @@ media from the internet, so create a second, more-specific Access application:
 Only that path is public, and the origin accepts requests only when they contain
 a short-lived cryptographic signature. Never bypass Access for the whole app.
 
+For defense in depth, optional HTTP Basic authentication can protect the app
+even without Cloudflare Access. Create a mode-`600` file containing exactly
+`username:password`, set `POLYSOCIAL_AUTH_FILE` in `install.env`, and rerun the
+installer. The health endpoint and signed media route remain exempt by design.
+
 ## Local storage and privacy
 
 - Posts and delivery state: `~/.local/share/polysocial/posts.sqlite3`
@@ -132,6 +173,29 @@ The credential encryption key is intentionally local so scheduled publishing
 can continue unattended. Encryption does not make these files safe to publish.
 Keep the entire data directory private and backed up only to a secure
 location.
+
+## Backup and restore
+
+Create and verify a consistent database backup without credentials:
+
+```bash
+python3 -m polysocial.backup --output polysocial-backup.tar.gz
+python3 -m polysocial.backup --verify polysocial-backup.tar.gz
+```
+
+Credentials are excluded by default. Add `--include-credentials` only when the
+archive will be stored somewhere private and encrypted. Restore while the
+service is stopped:
+
+```bash
+sudo systemctl stop polysocial.service
+python3 -m polysocial.backup --restore polysocial-backup.tar.gz
+sudo systemctl start polysocial.service
+```
+
+Restore preserves the previous database beside the restored copy. The systemd
+installation also writes a verified database-only backup to
+`~/.local/share/polysocial/backups/latest.tar.gz` each day.
 
 ## Testing
 
@@ -149,13 +213,16 @@ node --check overrides.js
 - Platform limits, app-review rules, and available permissions can change.
 - Delivery is at-least-once during ambiguous network failures; always inspect
   history before manually retrying a post.
+- Tokens and platform permissions can still be revoked externally. Use the
+  connection test controls after changing an account or developer app.
 
 ## License
 
 Polysocial source code is released under the [MIT License](LICENSE). Third-party
 components are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-The DEFACID name and logo identify the original project and are not an
-endorsement of modified distributions.
+The DEFACID name and logo identify the original project, are excluded from the
+MIT license, and are not an endorsement of modified distributions. Forks should
+replace those brand assets.
 
 ## Security
 

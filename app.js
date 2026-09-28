@@ -128,6 +128,7 @@ function ensureMediaViewer() {
     .media-card img,.media-card video{display:block;height:78px;width:104px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
     .media-card.dragging{opacity:.45}.media-order{position:absolute;left:0;bottom:0;min-width:23px;height:22px;padding:0 6px;display:grid;place-items:center;background:#fff;color:#173f91;border-radius:0 7px 0 7px;font:800 11px Manrope,sans-serif;pointer-events:none}
     .remove-media{position:absolute;right:3px;top:3px;width:22px;height:22px;border:2px solid #0b2860;border-radius:50%;background:#fff;color:#173f91;font-weight:800;line-height:1;padding:0;display:grid;place-items:center;cursor:pointer;z-index:1}
+    .alt-media{position:absolute;left:3px;top:3px;z-index:1;border:0;border-radius:4px;padding:3px 5px;background:#fff;color:#173f91;font:800 9px Manrope,sans-serif;cursor:pointer}.alt-media.complete{background:#39d99b;color:#071943}
     .media-viewer{max-width:min(92vw,920px);width:auto;padding:12px;background:#071943;border:1px solid #ffffff55}.media-viewer::backdrop{background:#000c}
     .media-viewer img,.media-viewer video{display:block;max-width:86vw;max-height:78vh;object-fit:contain}.media-viewer button{position:absolute;right:7px;top:5px;width:30px;height:30px;border:0;border-radius:50%;background:#fff;color:#071943;font-size:20px;cursor:pointer}
   </style>`);
@@ -169,12 +170,14 @@ $('#mediaInput').addEventListener('change', event => {
     const item = document.createElement(file.type.startsWith('video/') ? 'video' : 'img');
     const card = document.createElement('div');
     const remove = document.createElement('button');
+    const alt = document.createElement('button');
     const order = document.createElement('span');
     item.src = URL.createObjectURL(file);
     item.alt = file.name;
     if (item.tagName === 'VIDEO') item.muted = true;
     card.className = 'media-card';
     card._file = file;
+    card._alt = '';
     card.draggable = true;
     card.tabIndex = 0;
     card.setAttribute('role', 'button');
@@ -183,6 +186,19 @@ $('#mediaInput').addEventListener('change', event => {
     remove.type = 'button';
     remove.setAttribute('aria-label', `Remove ${file.name}`);
     remove.textContent = '×';
+    alt.className = 'alt-media';
+    alt.type = 'button';
+    alt.textContent = 'ALT';
+    alt.setAttribute('aria-label', `Add alt text for ${file.name}`);
+    alt.addEventListener('click', click => {
+      click.stopPropagation();
+      const value = prompt('Describe this image for people using screen readers:', card._alt || '');
+      if (value !== null) {
+        card._alt = value.trim();
+        alt.classList.toggle('complete', Boolean(card._alt));
+        alt.setAttribute('aria-label', `${card._alt ? 'Edit' : 'Add'} alt text for ${file.name}`);
+      }
+    });
     order.className = 'media-order';
     remove.addEventListener('click', click => {
       click.stopPropagation();
@@ -207,7 +223,7 @@ $('#mediaInput').addEventListener('change', event => {
         showMedia(item);
       }
     });
-    card.append(item, remove, order);
+    card.append(item, remove, alt, order);
     preview.append(card);
   }
   updateMediaOrder();
