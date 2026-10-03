@@ -2,7 +2,8 @@ const {test, expect} = require('@playwright/test');
 
 const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3nQAAAAASUVORK5CYII=', 'base64');
 
-test('compose, annotate, schedule, edit, and publish now', async ({page}) => {
+test('compose, annotate, schedule, edit, and publish now', async ({page}, testInfo) => {
+  const content = `Playwright scheduled post (${testInfo.project.name})`;
   await page.goto('/');
   await expect(page.getByRole('heading', {name: 'Create post'})).toBeVisible();
 
@@ -10,17 +11,17 @@ test('compose, annotate, schedule, edit, and publish now', async ({page}) => {
     await page.locator(`#${platform}`).selectOption('none');
   }
   await page.locator('#bluesky').selectOption('connected');
-  await page.locator('#postText').fill('Playwright scheduled post');
+  await page.locator('#postText').fill(content);
   await page.locator('#scheduleTime').fill('2099-01-02T12:30');
   await page.locator('#mediaInput').setInputFiles({name: 'pixel.png', mimeType: 'image/png', buffer: pixel});
   page.once('dialog', dialog => dialog.accept('A single test pixel'));
   await page.getByRole('button', {name: /Add alt text/}).click();
   await page.locator('#postForm button.primary-button').first().click();
 
-  const card = page.locator('.scheduled-post').filter({hasText: 'Playwright scheduled post'});
+  const card = page.locator('.scheduled-post').filter({hasText: content});
   await expect(card).toBeVisible();
   await card.getByRole('button', {name: /Edit post/}).click();
-  await expect(page.locator('#postText')).toHaveValue('Playwright scheduled post');
+  await expect(page.locator('#postText')).toHaveValue(content);
   await expect(page.locator('.alt-media')).toHaveClass(/complete/);
   await page.locator('#postForm button.primary-button').first().click();
   await expect(card).toBeVisible();
