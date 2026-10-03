@@ -8,6 +8,7 @@ All notable changes are documented here. Polysocial follows Semantic Versioning.
 - Record durable per-attempt delivery diagnostics and ambiguous outcomes.
 - Add global delivery queue pause and resume controls.
 - Add single-MP4 publishing for Facebook Pages, Instagram Reels, and Threads.
+- Add verified backup download and guarded restore controls to local settings.
 - Fix the scheduled-post edit action and close SQLite connections deterministically.
 
 ## 0.1.0 — 2026-09-28

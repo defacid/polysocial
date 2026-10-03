@@ -20,6 +20,7 @@ from polysocial.vault import CredentialVault, VaultError
 from polysocial.worker import DeliveryWorker
 from polysocial.media_urls import valid_signature
 from polysocial.validation import validate_post
+from polysocial.backup import create_backup, restore_backup
 
 
 DATA_DIR = Path(os.environ.get("POLYSOCIAL_DATA_DIR", Path.home() / ".local" / "share" / "polysocial")).expanduser().resolve()
@@ -29,7 +30,7 @@ STORAGE = Storage(DATABASE)
 VAULT = CredentialVault(DATA_DIR / "credentials")
 PUBLIC_ORIGIN = os.environ.get("POLYSOCIAL_PUBLIC_ORIGIN", "").rstrip("/")
 AUTH_FILE = os.environ.get("POLYSOCIAL_AUTH_FILE", "").strip()
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 PUBLIC_FILES = {
     "/", "/index.html", "/app.js", "/overrides.js", "/styles.css",
     "/polysocial-brand.svg", "/defacid-logo-black.png",
@@ -218,6 +219,19 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 self.redirect("/?threads=connected")
             except (ThreadsError, VaultError, KeyError) as error:
                 self.redirect(f"/?threads_error={quote(str(error))}")
+        elif path == "/api/backup":
+            try:
+                output = create_backup(DATA_DIR, DATA_DIR / "backups" / "manual-latest.tar.gz")
+                body = output.read_bytes()
+                filename = f"polysocial-backup-{datetime.now():%Y%m%d-%H%M%S}.tar.gz"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/gzip")
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (OSError, ValueError) as error:
+                self.api_response(500, {"error": str(error)})
         elif path == "/api/posts":
             self.api_response(200, STORAGE.list_posts())
         elif path == "/api/status":
@@ -250,6 +264,38 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             self.api_response(404, {"error": "Not found"})
         else:
             super().do_GET()
+
+    def do_POST(self):
+        if not self.authorized():
+            return
+        if self.api_path() != "/api/backup/restore":
+            self.api_response(404, {"error": "Not found"})
+            return
+        upload = DATA_DIR / ".backup-upload.tar.gz"
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 250 * 1024 * 1024:
+                self.api_response(413, {"error": "Backup is too large"})
+                return
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with upload.open("wb") as destination:
+                remaining = length
+                while remaining:
+                    chunk = self.rfile.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError("Backup upload ended unexpectedly")
+                    destination.write(chunk)
+                    remaining -= len(chunk)
+            upload.chmod(0o600)
+            STORAGE.set_setting("delivery_enabled", False)
+            manifest = restore_backup(upload, DATA_DIR)
+            STORAGE.migrate()
+            STORAGE.set_setting("delivery_enabled", False)
+            self.api_response(200, {"restored": True, "createdAt": manifest["createdAt"], "deliveryEnabled": False})
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+            self.api_response(400, {"error": str(error)})
+        finally:
+            upload.unlink(missing_ok=True)
 
     def do_PUT(self):
         if not self.authorized():

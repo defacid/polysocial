@@ -22,6 +22,7 @@ media, schedules, tokens, and receipts stay on the computer running the app.
 - Encrypted local credential vault
 - Connection health checks and proactive Threads token refresh
 - Verified backups, daily backup timer, and safe restore tooling
+- Backup download and guarded restore from Local settings
 - Per-platform retry/cancel controls and interrupted-delivery recovery
 - Durable delivery-attempt history with ambiguous-outcome warnings
 - Per-image alt text and platform-aware media validation

@@ -80,6 +80,23 @@ function makeLocalSettings() {
   dialog.querySelector('h2').textContent = 'Local settings';
   dialog.querySelector('p').textContent = 'Polysocial runs on this machine. Connections, drafts, media, and schedules stay here—there is no Polysocial user account.';
   dialog.querySelector('.delivery-rule').innerHTML = '<strong>Local delivery & privacy</strong><p>Connected-account tokens are encrypted on this machine. Scheduled posts run only while the local Polysocial service is running.</p>';
+  const backup = document.createElement('div');
+  backup.className = 'delivery-rule backup-tools';
+  backup.innerHTML = '<strong>Backup & restore</strong><p>Download posts, schedules, receipts, and media. Credentials are never included.</p><div class="connection-actions"><a class="secondary-button backup-download" href="/api/backup" download>Download backup</a><label class="secondary-button backup-restore">Restore backup<input type="file" accept=".gz,application/gzip" hidden></label></div><small class="backup-version"></small>';
+  dialog.append(backup);
+  backup.querySelector('input').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (!file || !confirm('Restore this backup? Current posts and media will be replaced, a safety copy will be kept, and delivery will be paused.')) return;
+    try {
+      const response = await fetch('/api/backup/restore', {method: 'POST', headers: {'Content-Type': 'application/gzip'}, body: file});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not restore backup');
+      showToast(`Backup from ${new Date(result.createdAt).toLocaleString()} restored. Delivery is paused.`);
+      setTimeout(() => location.reload(), 1200);
+    } catch (error) { showToast(error.message); }
+    finally { event.target.value = ''; }
+  });
+  fetch('/api/status').then(response => response.json()).then(status => { backup.querySelector('.backup-version').textContent = `Polysocial ${status.version} · database ${status.database}`; }).catch(() => {});
   button.addEventListener('click', event => {
     event.preventDefault();
     event.stopImmediatePropagation();
