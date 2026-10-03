@@ -25,6 +25,7 @@ media, schedules, tokens, and receipts stay on the computer running the app.
 - Per-platform retry/cancel controls and interrupted-delivery recovery
 - Durable delivery-attempt history with ambiguous-outcome warnings
 - Per-image alt text and platform-aware media validation
+- Single MP4 video publishing for Facebook Pages, Instagram Reels, and Threads
 - Responsive keyboard-accessible interface
 - Locally vendored Font Awesome icons
 

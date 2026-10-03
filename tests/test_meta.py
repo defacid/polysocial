@@ -50,6 +50,20 @@ class MetaTests(unittest.TestCase):
         self.assertIn(b"hello", calls[0].data)
         self.assertIn(b"photo_id", calls[1].data)
 
+    def test_facebook_video_uses_page_video_endpoint(self):
+        calls = []
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        def opener(request, timeout=0):
+            calls.append(request)
+            return Response(b'{"id":"video_id"}')
+        media = [{"name": "clip.mp4", "type": "video/mp4", "data": "dmlkZW8="}]
+        result = MetaClient("", "", opener=opener).publish_facebook("page", "token", "caption", media)
+        self.assertEqual("video_id", result)
+        self.assertTrue(calls[0].full_url.endswith("/page/videos"))
+        self.assertIn(b'filename="clip.mp4"', calls[0].data)
+
 
 if __name__ == "__main__":
     unittest.main()

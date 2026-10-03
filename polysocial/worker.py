@@ -81,10 +81,11 @@ class DeliveryWorker(threading.Thread):
             post_id = client.publish_facebook(credentials["pageId"], credentials["accessToken"], text, media)
             return post_id, f"https://www.facebook.com/{post_id}", {"id": post_id}
 
-        image_urls = self._media_urls(post)
+        media_urls = self._media_urls(post)
+        video = any(item.get("type") == "video/mp4" for item in media)
         if platform == "instagram":
             client = MetaClient("", "")
-            media_id, permalink = client.publish_instagram(credentials["userId"], credentials["accessToken"], text, image_urls)
+            media_id, permalink = client.publish_instagram(credentials["userId"], credentials["accessToken"], text, media_urls, video=video)
             return media_id, permalink, {"id": media_id}
         if platform == "threads":
             client = ThreadsClient(credentials.get("appId", ""), credentials.get("appSecret", ""))
@@ -96,13 +97,13 @@ class DeliveryWorker(threading.Thread):
                 credentials["expiresAt"] = (datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))).isoformat() if expires_in else None
                 credentials["lastCheckedAt"] = datetime.now(timezone.utc).isoformat()
                 self.vault.set("threads", credentials)
-            ids, permalink = client.publish(credentials["userId"], credentials["accessToken"], text, image_urls)
+            ids, permalink = client.publish(credentials["userId"], credentials["accessToken"], text, media_urls, video=video)
             return ids[0], permalink, ids
         raise RuntimeError(f"Unsupported destination: {platform}")
 
     def _media_urls(self, post):
-        images = [item for item in post.get("media", []) if item.get("type", "").startswith("image/")]
-        if not images:
+        media = post.get("media", [])
+        if not media:
             return []
         origin = os.environ.get("POLYSOCIAL_PUBLIC_ORIGIN", "").rstrip("/")
         if not origin:
@@ -112,4 +113,4 @@ class DeliveryWorker(threading.Thread):
             import secrets
             secret = secrets.token_urlsafe(32)
             self.storage.set_setting("media_signing_key", secret)
-        return [signed_url(origin, secret, post["id"], index) for index, item in enumerate(post.get("media", [])) if item.get("type", "").startswith("image/")]
+        return [signed_url(origin, secret, post["id"], index) for index, item in enumerate(media)]

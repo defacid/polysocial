@@ -5,6 +5,9 @@ window.addEventListener('DOMContentLoaded', () => {
   const destinations = document.querySelector('#destinations');
   const postLabel = form.querySelector('label[for="postText"]');
   const publish = form.querySelector('.primary-button');
+  const mediaInput = document.querySelector('#mediaInput');
+  mediaInput.accept = 'image/jpeg,image/png,image/webp,video/mp4';
+  document.querySelector('label[for="mediaInput"]')?.setAttribute('title', 'Attach images or one MP4 video');
   const queue = document.querySelector('.scheduled');
   const scheduledList = queue.querySelector('.scheduled-list');
   const historyList = queue.querySelector('.history-list');
@@ -109,7 +112,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   async function serializeMedia(file, alt = '') {
-    if (!file.type.startsWith('image/') || file.type === 'image/jpeg') {
+    if (file.type.startsWith('video/') || file.type === 'image/jpeg') {
       return {name: file.name, type: file.type, data: await fileData(file), alt};
     }
     // Instagram's publishing API accepts JPEG images only. Keep previews in

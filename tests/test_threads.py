@@ -48,6 +48,20 @@ class ThreadsTests(unittest.TestCase):
         self.assertEqual(creates[1]["reply_to_id"], [ids[0]])
         self.assertEqual(permalink, "https://www.threads.net/@test/post/one")
 
+    def test_video_container_uses_video_url(self):
+        calls = []
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        responses = iter((b'{"id":"container"}', b'{"status":"FINISHED"}', b'{"id":"post"}', b'{"permalink":"https://threads.net/post"}'))
+        def opener(request, timeout=0):
+            calls.append(request)
+            return Response(next(responses))
+        ThreadsClient("123", "secret", opener=opener).publish("user", "token", "clip", ["https://example.com/clip.mp4"], video=True)
+        body = parse_qs(calls[0].data.decode())
+        self.assertEqual(["VIDEO"], body["media_type"])
+        self.assertEqual(["https://example.com/clip.mp4"], body["video_url"])
+
 
 if __name__ == "__main__":
     unittest.main()

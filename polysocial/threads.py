@@ -62,14 +62,16 @@ class ThreadsClient:
         query = urlencode({"fields": "id,username", "access_token": token})
         return self._request(f"{self.graph}/me?{query}")
 
-    def publish(self, user_id, token, text, media_urls=None):
+    def publish(self, user_id, token, text, media_urls=None, video=False):
         parts = split_text(text, 500)
         media_urls = media_urls or []
         published_ids = []
         parent = None
         for index, part in enumerate(parts):
             parameters = {"media_type": "TEXT", "text": part, "access_token": token}
-            if index == 0 and len(media_urls) == 1:
+            if index == 0 and video:
+                parameters.update(media_type="VIDEO", video_url=media_urls[0])
+            elif index == 0 and len(media_urls) == 1:
                 parameters.update(media_type="IMAGE", image_url=media_urls[0])
             elif index == 0 and len(media_urls) > 1:
                 children = []

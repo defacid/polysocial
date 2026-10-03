@@ -89,6 +89,13 @@ class MetaClient:
         return result.get("data", [])
 
     def publish_facebook(self, page_id, token, text, media):
+        videos = [item for item in media if item.get("type") == "video/mp4"]
+        if videos:
+            video = videos[0]
+            result = self._post(f"/{page_id}/videos", {"description": text, "access_token": token}, [
+                ("source", video.get("name", "polysocial.mp4"), "video/mp4", base64.b64decode(video["data"]))
+            ])
+            return result["id"]
         images = [item for item in media if item.get("type", "").startswith("image/")]
         if not images:
             result = self._post(f"/{page_id}/feed", {"message": text, "access_token": token})
@@ -107,10 +114,13 @@ class MetaClient:
         result = self._post(f"/{page_id}/feed", parameters)
         return result["id"]
 
-    def publish_instagram(self, user_id, token, text, media_urls):
+    def publish_instagram(self, user_id, token, text, media_urls, video=False):
         if not media_urls:
-            raise MetaError("Instagram requires at least one image")
-        if len(media_urls) == 1:
+            raise MetaError("Instagram requires an image or video")
+        if video:
+            container = self._post(f"/{user_id}/media", {"media_type": "REELS", "video_url": media_urls[0], "caption": text, "access_token": token})
+            self._wait_for_container(container["id"], token)
+        elif len(media_urls) == 1:
             container = self._post(f"/{user_id}/media", {"image_url": media_urls[0], "caption": text, "access_token": token})
         else:
             children = []
@@ -127,3 +137,16 @@ class MetaClient:
             # must never cause a duplicate retry.
             permalink = None
         return published["id"], permalink
+
+    def _wait_for_container(self, container_id, token):
+        import time
+        for attempt in range(13):
+            result = self._get(f"/{container_id}", {"fields": "status_code,status", "access_token": token})
+            status = result.get("status_code") or result.get("status")
+            if status == "FINISHED":
+                return
+            if status in ("ERROR", "EXPIRED"):
+                raise MetaError(f"Instagram could not process video: {status}")
+            if attempt < 12:
+                time.sleep(5)
+        raise MetaError("Instagram video was still processing after 60 seconds; verify Instagram before retrying")

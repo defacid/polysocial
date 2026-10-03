@@ -23,13 +23,22 @@ def post(post_id="PS-TEST", media=None, destinations=None):
 
 
 class ValidationTests(unittest.TestCase):
-    def test_rejects_video_and_invalid_base64(self):
+    def test_rejects_invalid_video_base64(self):
         errors = validate_post(post(media=[{"type": "video/mp4", "data": "%%%"}]))
-        self.assertTrue(any("JPEG" in error for error in errors))
+        self.assertTrue(any("base64" in error for error in errors))
 
-    def test_instagram_requires_image(self):
+    def test_accepts_one_mp4_for_threads(self):
+        video = {"type": "video/mp4", "data": base64.b64encode(b"video").decode(), "alt": ""}
+        self.assertEqual([], validate_post(post(media=[video], destinations={"threads": "connected"})))
+
+    def test_rejects_mixed_images_and_video(self):
+        content = base64.b64encode(b"media").decode()
+        media = [{"type": "image/jpeg", "data": content}, {"type": "video/mp4", "data": content}]
+        self.assertIn("Attach either images or one MP4 video", validate_post(post(media=media)))
+
+    def test_instagram_requires_media(self):
         errors = validate_post(post(destinations={"instagram": "connected"}))
-        self.assertIn("Instagram requires at least one image", errors)
+        self.assertIn("Instagram requires an image or video", errors)
 
     def test_bluesky_enforces_image_count(self):
         image = {"type": "image/jpeg", "data": base64.b64encode(b"x").decode(), "alt": "test"}

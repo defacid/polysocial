@@ -8,7 +8,6 @@ module.exports = defineConfig({
   expect: {timeout: 5_000},
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['line'], ['html', {open: 'never'}]] : 'list',
-  globalSetup: require.resolve('./e2e/global-setup'),
   use: {
     baseURL: 'http://127.0.0.1:5511',
     trace: 'retain-on-failure',
@@ -19,7 +18,7 @@ module.exports = defineConfig({
     {name: 'mobile', use: {...devices['Pixel 7']}},
   ],
   webServer: {
-    command: 'python3 server.py --bind 127.0.0.1 --port 5511',
+    command: 'node e2e/reset-data.js && python3 server.py --bind 127.0.0.1 --port 5511',
     env: {...process.env, POLYSOCIAL_DATA_DIR: '.e2e-data'},
     url: 'http://127.0.0.1:5511/api/status',
     reuseExistingServer: false,
