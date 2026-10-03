@@ -23,6 +23,7 @@ media, schedules, tokens, and receipts stay on the computer running the app.
 - Connection health checks and proactive Threads token refresh
 - Verified backups, daily backup timer, and safe restore tooling
 - Per-platform retry/cancel controls and interrupted-delivery recovery
+- Durable delivery-attempt history with ambiguous-outcome warnings
 - Per-image alt text and platform-aware media validation
 - Responsive keyboard-accessible interface
 - Locally vendored Font Awesome icons
@@ -204,6 +205,9 @@ installation also writes a verified posts-and-media backup to
 python3 -m unittest discover -s tests -v
 node --check app.js
 node --check overrides.js
+npm ci
+npx playwright install chromium
+npm run test:e2e
 ```
 
 ## Limitations

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+from contextlib import closing
 import argparse
 import hashlib
 import json
@@ -28,8 +29,9 @@ def create_backup(data_dir, output, include_credentials=False):
     with tempfile.TemporaryDirectory() as temporary:
         staging = Path(temporary)
         database_copy = staging / "posts.sqlite3"
-        with sqlite3.connect(database) as source, sqlite3.connect(database_copy) as target:
+        with closing(sqlite3.connect(database)) as source, closing(sqlite3.connect(database_copy)) as target:
             source.backup(target)
+            target.commit()
         files = [database_copy]
         media = data_dir / "media"
         if media.exists():
@@ -64,7 +66,7 @@ def verify_backup(archive_path):
             path = root / name
             if not path.is_file() or _sha256(path) != expected:
                 raise ValueError(f"Backup verification failed: {name}")
-        with sqlite3.connect(root / "posts.sqlite3") as database:
+        with closing(sqlite3.connect(root / "posts.sqlite3")) as database:
             result = database.execute("PRAGMA integrity_check").fetchone()[0]
             if result != "ok":
                 raise ValueError(f"Database integrity check failed: {result}")

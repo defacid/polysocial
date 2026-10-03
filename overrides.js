@@ -66,6 +66,7 @@ window.addEventListener('DOMContentLoaded', () => {
     .history-card{border:1px solid #7299ef66;border-radius:12px;background:#0b2860;overflow:hidden}.history-card>summary{list-style:none;cursor:pointer}.history-card>summary::-webkit-details-marker{display:none}.history-card .scheduled-post{border:0;border-radius:0;margin:0;width:100%}.history-card .queue-status:not(.delivery-delivered)::after{content:"×";background:#e85b5b;color:#fff}.history-expand{width:24px;height:24px;display:grid;place-items:center;color:#b8caff}.history-expand::before{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg);transition:transform .18s ease}.history-card[open] .history-expand::before{transform:rotate(225deg)}
     .history-deliveries{display:grid;gap:1px;padding:7px 12px 12px 79px;border-top:1px solid #7299ef44}.history-delivery{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:39px;padding:4px 0;color:#dce7ff;font:600 12px Manrope,sans-serif}.history-delivery+.history-delivery{border-top:1px solid #7299ef2e}.history-delivery .queue-status{width:25px;height:25px}.history-delivery a{color:#fff;font-weight:800;text-underline-offset:3px}.history-result{color:#b8caff;text-transform:capitalize}.history-result.failed{color:#ff9dac}
     .delivery-action,.post-action{border:1px solid #7299ef;border-radius:6px;padding:5px 7px;background:#17438f;color:#fff;font:800 10px Manrope,sans-serif;cursor:pointer}.post-action{font-size:9px}.connection-health{margin-left:8px;color:#637bac;font-size:10px}.connection-health.expiring,.connection-health.expired{color:#a5233e}
+    .attempt-list{grid-column:2/-1;margin:3px 0 7px;padding:7px 9px;border-radius:7px;background:#071943;color:#dce7ff;font:10px "DM Mono",monospace}.attempt-list div+div{margin-top:5px}.attempt-list strong{color:#fff}.queue-control{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:12px;border-radius:9px;background:#edf3ff;color:#274d9d}.queue-control button{border:0;border-radius:7px;padding:8px 10px;background:#2459c8;color:#fff;font:800 10px Manrope;cursor:pointer}
     .setting-line{justify-content:flex-start;gap:7px}.setting-line>span:first-child{margin-right:auto}.setting-test{border:0;background:#edf3ff;color:#31589d;border-radius:6px;padding:7px 8px;font:700 10px Manrope;cursor:pointer}
     .calendar-dialog{border:0;border-radius:16px;padding:25px;max-width:420px;width:calc(100vw - 32px);color:#10295c}
     .calendar-dialog::backdrop{background:#000b}
@@ -466,6 +467,31 @@ window.addEventListener('DOMContentLoaded', () => {
         });
         row.append(cancel);
       }
+      if (delivery.attempts > 0) {
+        const detailsButton = document.createElement('button');
+        detailsButton.type = 'button';
+        detailsButton.className = 'delivery-action';
+        detailsButton.textContent = 'Attempts';
+        detailsButton.addEventListener('click', async () => {
+          let list = row.querySelector('.attempt-list');
+          if (list) { list.remove(); return; }
+          try {
+            const attempts = await api(`/api/deliveries/${encodeURIComponent(post.id)}/${delivery.platform}/attempts`);
+            list = document.createElement('div');
+            list.className = 'attempt-list';
+            if (!attempts.length) list.textContent = 'No attempt details were recorded for this older delivery.';
+            for (const attempt of attempts) {
+              const item = document.createElement('div');
+              const heading = document.createElement('strong');
+              heading.textContent = `#${attempt.attempt} · ${attempt.stage} · ${attempt.status}`;
+              item.append(heading, document.createTextNode(` · ${new Date(attempt.started_at).toLocaleString()}${attempt.error ? ` · ${attempt.error}` : ''}`));
+              list.append(item);
+            }
+            row.append(list);
+          } catch (error) { showToast(error.message); }
+        });
+        row.append(detailsButton);
+      }
       list.append(row);
     }
     details.append(summary, list);
@@ -575,6 +601,9 @@ window.addEventListener('DOMContentLoaded', () => {
       event.preventDefault();
       event.stopImmediatePropagation();
       showQueueCalendar(event.target.closest('.calendar-button').dataset.calendar);
+    } else if (event.target.closest('.more')) {
+      const card = event.target.closest('.scheduled-post');
+      if (card?.dataset.postId) openQueuedPost(card.dataset.postId);
     }
   }, true);
 
@@ -742,6 +771,12 @@ window.addEventListener('DOMContentLoaded', () => {
     const response = await fetch('/api/connections', {cache: 'no-store'});
     if (!response.ok) return;
     const result = await response.json();
+    const queueControl = document.querySelector('#queueControl');
+    if (queueControl) {
+      queueControl.querySelector('strong').textContent = result.deliveryEnabled ? 'Delivery queue running' : 'Delivery queue paused';
+      queueControl.querySelector('button').textContent = result.deliveryEnabled ? 'Pause queue' : 'Resume queue';
+      queueControl.dataset.enabled = String(Boolean(result.deliveryEnabled));
+    }
     for (const connection of result.connections) {
       const row = document.querySelector(`.setting-edit[data-platform="${connection.platform}"]`)?.closest('.setting-line');
       if (!row) continue;
@@ -836,6 +871,26 @@ window.addEventListener('DOMContentLoaded', () => {
     });
     row.insertBefore(test, edit);
   });
+
+  const settingsDialog = document.querySelector('#settingsDialog');
+  if (settingsDialog && !document.querySelector('#queueControl')) {
+    const control = document.createElement('div');
+    control.id = 'queueControl';
+    control.className = 'queue-control';
+    const label = document.createElement('strong');
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.addEventListener('click', async () => {
+      const enabled = control.dataset.enabled !== 'true';
+      try {
+        await api('/api/settings/delivery', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled})});
+        await refreshConnections();
+        showToast(enabled ? 'Delivery queue resumed.' : 'Delivery queue paused.');
+      } catch (error) { showToast(error.message); }
+    });
+    control.append(label, toggle);
+    settingsDialog.append(control);
+  }
 
   async function initialize() {
     try {

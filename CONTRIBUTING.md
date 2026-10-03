@@ -16,6 +16,9 @@ python -m unittest discover -s tests -v
 node --check app.js
 node --check overrides.js
 bash -n deploy/*.sh run-cloudflared.sh
+npm ci
+npx playwright install chromium
+npm run test:e2e
 ```
 
 Pull requests that change stored data must include a backward-compatible migration and recovery test. Publishing changes must account for ambiguous network failures and avoid automatic duplicate posts.

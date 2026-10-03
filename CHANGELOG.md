@@ -2,6 +2,13 @@
 
 All notable changes are documented here. Polysocial follows Semantic Versioning.
 
+## Unreleased
+
+- Add Chromium browser tests for desktop and mobile composer workflows.
+- Record durable per-attempt delivery diagnostics and ambiguous outcomes.
+- Add global delivery queue pause and resume controls.
+- Fix the scheduled-post edit action and close SQLite connections deterministically.
+
 ## 0.1.0 — 2026-09-28
 
 - Publish to Facebook Pages, Instagram, Threads, and Bluesky.

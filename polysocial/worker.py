@@ -45,14 +45,21 @@ class DeliveryWorker(threading.Thread):
         deliveries = self.storage.list_deliveries(post["id"])
         current = next(row for row in deliveries if row["platform"] == platform)
         attempts = current["attempts"] + 1
+        attempt_id = self.storage.start_attempt(post["id"], platform, attempts)
         self.storage.delivery(post["id"], platform, "publishing", attempts=attempts, error=None)
         try:
             remote_id, remote_url, receipt = self._publish(post, platform, credentials)
-            self.storage.delivery(post["id"], platform, "delivered", remote_id=remote_id, remote_url=remote_url, receipt=json.dumps(receipt), error=None, next_attempt_at=None)
+            serialized = json.dumps(receipt)
+            self.storage.delivery(post["id"], platform, "delivered", remote_id=remote_id, remote_url=remote_url, receipt=serialized, error=None, next_attempt_at=None)
+            self.storage.finish_attempt(attempt_id, "delivered", "complete", receipt=serialized)
         except Exception as error:
             status = "retry" if attempts < 5 else "failed"
             retry_at = (datetime.now().astimezone() + timedelta(seconds=30 * (2 ** (attempts - 1)))).isoformat(timespec="seconds") if status == "retry" else None
-            self.storage.delivery(post["id"], platform, status, attempts=attempts, error=str(error)[:1000], next_attempt_at=retry_at)
+            detail = str(error)[:1000]
+            ambiguous = isinstance(error, (OSError, TimeoutError)) or any(term in detail.lower() for term in ("timed out", "could not reach", "still processing"))
+            stage = "ambiguous" if ambiguous else "rejected"
+            self.storage.delivery(post["id"], platform, status, attempts=attempts, error=detail, next_attempt_at=retry_at)
+            self.storage.finish_attempt(attempt_id, status, stage, error=detail)
 
     def _publish(self, post, platform, credentials):
         text = post.get("text", "")

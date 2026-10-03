@@ -61,6 +61,20 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual("queued", delivery["status"])
         self.assertEqual(0, delivery["attempts"])
 
+    def test_attempt_history_survives_delivery_updates(self):
+        attempt_id = self.storage.start_attempt("PS-TEST", "threads", 1)
+        self.storage.finish_attempt(attempt_id, "retry", "ambiguous", error="Timed out")
+        attempts = self.storage.list_attempts("PS-TEST", "threads")
+        self.assertEqual(1, len(attempts))
+        self.assertEqual("ambiguous", attempts[0]["stage"])
+        self.assertEqual("Timed out", attempts[0]["error"])
+
+    def test_running_attempt_becomes_interrupted_on_migration(self):
+        self.storage.start_attempt("PS-TEST", "threads", 1)
+        self.storage.delivery("PS-TEST", "threads", "publishing")
+        self.storage.migrate()
+        self.assertEqual("interrupted", self.storage.list_attempts("PS-TEST", "threads")[0]["status"])
+
     def test_cancel_and_publish_now(self):
         self.assertTrue(self.storage.cancel_delivery("PS-TEST", "threads"))
         self.assertEqual("cancelled", self.storage.list_deliveries("PS-TEST")[0]["status"])

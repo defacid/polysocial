@@ -237,6 +237,9 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             })
         elif path == "/api/deliveries":
             self.api_response(200, STORAGE.list_deliveries())
+        elif re.fullmatch(r"/api/deliveries/PS-[A-Z0-9-]{1,40}/(bluesky|facebook|instagram|threads)/attempts", path):
+            parts = path.split("/")
+            self.api_response(200, STORAGE.list_attempts(parts[3], parts[4]))
         elif path.startswith("/api/deliveries/"):
             self.api_response(200, STORAGE.list_deliveries(path.rsplit("/", 1)[-1]))
         elif path.startswith("/api/posts/"):

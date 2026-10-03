@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
 import base64
 import json
 import sqlite3
@@ -18,12 +19,20 @@ class Storage:
         self.database = database
         self.media_directory = database.parent / "media"
 
+    @contextmanager
     def connect(self):
         connection = sqlite3.connect(self.database, timeout=15)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA foreign_keys=ON")
-        return connection
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def migrate(self):
         self.database.parent.mkdir(exist_ok=True)
@@ -43,12 +52,20 @@ class Storage:
                 remote_id TEXT, remote_url TEXT, error TEXT, receipt TEXT,
                 updated_at TEXT NOT NULL, PRIMARY KEY(post_id, platform),
                 FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)""")
+            db.execute("""CREATE TABLE IF NOT EXISTS delivery_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, post_id TEXT NOT NULL, platform TEXT NOT NULL,
+                attempt INTEGER NOT NULL, status TEXT NOT NULL, stage TEXT NOT NULL,
+                error TEXT, receipt TEXT, started_at TEXT NOT NULL, completed_at TEXT,
+                FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE)""")
             db.execute("UPDATE deliveries SET status='not_implemented',updated_at=? WHERE status='waiting_for_crosspost'", (now(),))
             # A process can die after sending a request but before recording its
             # receipt. Never auto-resend these ambiguous deliveries: doing so can
             # create duplicate public posts. Let the operator inspect and retry.
             db.execute("""UPDATE deliveries SET status='failed',error=?,next_attempt_at=NULL,updated_at=?
                 WHERE status='publishing'""", ("Publishing was interrupted; verify the platform before retrying.", now()))
+            db.execute("""UPDATE delivery_attempts SET status='interrupted',stage='ambiguous',
+                error=COALESCE(error,?),completed_at=? WHERE status='running'""",
+                ("Service stopped before the delivery result was recorded.", now()))
             posts = db.execute("SELECT payload FROM posts").fetchall()
             for row in posts:
                 post = json.loads(row["payload"])
@@ -199,6 +216,25 @@ class Storage:
                 rows = db.execute("SELECT * FROM deliveries WHERE post_id=? ORDER BY platform", (post_id,)).fetchall()
             else:
                 rows = db.execute("SELECT * FROM deliveries ORDER BY updated_at DESC").fetchall()
+        return [dict(row) for row in rows]
+
+    def start_attempt(self, post_id, platform, attempt, stage="publishing"):
+        with self.connect() as db:
+            cursor = db.execute("""INSERT INTO delivery_attempts
+                (post_id,platform,attempt,status,stage,started_at) VALUES(?,?,?,?,?,?)""",
+                (post_id, platform, attempt, "running", stage, now()))
+            return cursor.lastrowid
+
+    def finish_attempt(self, attempt_id, status, stage, error=None, receipt=None):
+        with self.connect() as db:
+            db.execute("""UPDATE delivery_attempts SET status=?,stage=?,error=?,receipt=?,completed_at=?
+                WHERE id=?""", (status, stage, error, receipt, now(), attempt_id))
+
+    def list_attempts(self, post_id, platform):
+        with self.connect() as db:
+            rows = db.execute("""SELECT id,attempt,status,stage,error,started_at,completed_at
+                FROM delivery_attempts WHERE post_id=? AND platform=? ORDER BY id DESC LIMIT 25""",
+                (post_id, platform)).fetchall()
         return [dict(row) for row in rows]
 
     def set_connection(self, platform, display_name, status="connected"):

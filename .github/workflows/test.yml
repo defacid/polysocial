@@ -24,3 +24,14 @@ jobs:
       - run: node --check app.js
       - run: node --check overrides.js
       - run: bash -n deploy/*.sh run-cloudflared.sh
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: playwright-results
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

@@ -28,6 +28,10 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+.e2e-data/
+node_modules/
+playwright-report/
+test-results/
 .venv/
 venv/
 
