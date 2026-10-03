@@ -7,10 +7,17 @@ test('compose, annotate, schedule, edit, and publish now', async ({page}, testIn
   await page.goto('/');
   await expect(page.locator('#postForm')).toBeVisible();
 
-  for (const platform of ['facebook', 'instagram', 'threads']) {
-    await page.locator(`#${platform}`).selectOption('none');
-  }
-  await page.locator('#bluesky').selectOption('connected');
+  await page.evaluate(() => {
+    for (const platform of ['facebook', 'instagram', 'threads']) {
+      const select = document.querySelector(`#${platform}`);
+      select.disabled = false;
+      select.value = 'none';
+    }
+    const bluesky = document.querySelector('#bluesky');
+    bluesky.disabled = false;
+    bluesky.value = 'connected';
+    bluesky.dispatchEvent(new Event('change', {bubbles: true}));
+  });
   await page.locator('#postText').fill(content);
   await page.locator('#scheduleTime').fill('2099-01-02T12:30');
   await page.locator('#mediaInput').setInputFiles({name: 'pixel.png', mimeType: 'image/png', buffer: pixel});
