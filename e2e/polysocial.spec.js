@@ -5,7 +5,7 @@ const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ
 test('compose, annotate, schedule, edit, and publish now', async ({page}, testInfo) => {
   const content = `Playwright scheduled post (${testInfo.project.name})`;
   await page.goto('/');
-  await expect(page.getByRole('heading', {name: 'Create post'})).toBeVisible();
+  await expect(page.locator('#postForm')).toBeVisible();
 
   for (const platform of ['facebook', 'instagram', 'threads']) {
     await page.locator(`#${platform}`).selectOption('none');
@@ -33,7 +33,6 @@ test('layout remains inside the viewport', async ({page}) => {
   await page.goto('/');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-  await page.getByRole('button', {name: /Settings/}).first().click();
-  await page.getByRole('button', {name: /^Settings/}).last().click();
-  await expect(page.getByRole('heading', {name: 'Accounts & delivery'})).toBeVisible();
+  await page.getByRole('button', {name: 'Open local settings'}).click();
+  await expect(page.getByRole('heading', {name: 'Local settings'})).toBeVisible();
 });
