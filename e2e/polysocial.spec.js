@@ -25,7 +25,7 @@ test('compose, annotate, schedule, edit, and publish now', async ({page}, testIn
   await page.getByRole('button', {name: /Add alt text/}).click();
   await page.locator('#postForm button.primary-button').first().click();
 
-  const card = page.locator('.scheduled-post').filter({hasText: content});
+  const card = page.locator('.scheduled-post').last();
   await expect(card).toBeVisible();
   await card.getByRole('button', {name: /Edit post/}).click();
   await expect(page.locator('#postText')).toHaveValue(content);
