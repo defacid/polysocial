@@ -1,8 +1,10 @@
 """Minimal AT Protocol publisher used by the local delivery worker."""
 
 from datetime import datetime, timezone
+import base64
 import json
 import re
+import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -91,13 +93,43 @@ class BlueskyClient:
         return session
 
     def upload_image(self, media):
-        import base64
         blob = self._request("POST", "com.atproto.repo.uploadBlob", base64.b64decode(media["data"]), media["type"])
         return {"alt": media.get("alt", ""), "image": blob["blob"]}
+
+    def _video_request(self, method, nsid, payload=None):
+        body = payload if isinstance(payload, bytes) else (json.dumps(payload).encode() if payload is not None else None)
+        headers = {"Accept": "application/json", "atproto-proxy": "did:web:video.bsky.app"}
+        if isinstance(payload, bytes):
+            headers["Content-Type"] = "video/mp4"
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        request = Request(f"https://video.bsky.app/xrpc/{nsid}", data=body, headers=headers, method=method)
+        try:
+            with urlopen(request, timeout=90) as response:
+                return json.loads(response.read())
+        except HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")
+            raise BlueskyError(f"Bluesky video returned {error.code}: {detail[:500]}") from error
+        except OSError as error:
+            raise BlueskyError(f"Could not reach Bluesky video service: {error}") from error
+
+    def upload_video(self, media):
+        result = self._video_request("POST", "app.bsky.video.uploadVideo", base64.b64decode(media["data"]))
+        job = result["jobStatus"]
+        for attempt in range(25):
+            if job.get("state") == "JOB_STATE_COMPLETED" and job.get("blob"):
+                return {"$type": "app.bsky.embed.video", "video": job["blob"], "alt": media.get("alt", "")}
+            if job.get("state") == "JOB_STATE_FAILED":
+                raise BlueskyError(f"Bluesky could not process video: {job.get('message') or job.get('error') or job.get('failureCode') or 'unknown error'}")
+            if attempt < 24:
+                time.sleep(5)
+                job = self._video_request("GET", f"app.bsky.video.getJobStatus?jobId={job['jobId']}")["jobStatus"]
+        raise BlueskyError("Bluesky video was still processing after two minutes; verify Bluesky before retrying")
 
     def publish(self, text, media):
         if not self.access_token:
             self.login()
+        video = next((item for item in media if item.get("type") == "video/mp4"), None)
         images = [self.upload_image(item) for item in media[:4] if item.get("type", "").startswith("image/")]
         refs, root, parent = [], None, None
         for index, part in enumerate(split_text(text)):
@@ -107,6 +139,8 @@ class BlueskyClient:
                 record["facets"] = facets
             if index == 0 and images:
                 record["embed"] = {"$type": "app.bsky.embed.images", "images": images}
+            elif index == 0 and video:
+                record["embed"] = self.upload_video(video)
             if parent:
                 record["reply"] = {"root": root, "parent": parent}
             result = self._request("POST", "com.atproto.repo.createRecord", {"repo": self.did, "collection": "app.bsky.feed.post", "record": record})

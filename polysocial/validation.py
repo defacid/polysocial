@@ -46,8 +46,6 @@ def validate_post(post):
     videos = [item for item in media if item.get("type") in VIDEO_TYPES]
     if len(videos) > 1 or (videos and len(media) > 1):
         errors.append("Attach either images or one MP4 video")
-    if videos and "bluesky" in selected:
-        errors.append("Bluesky video publishing is not available yet")
     unknown = selected - PLATFORM_LIMITS.keys()
     if unknown:
         errors.append(f"Unsupported destination: {sorted(unknown)[0]}")

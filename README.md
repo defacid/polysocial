@@ -16,7 +16,7 @@ media, schedules, tokens, and receipts stay on the computer running the app.
 - Facebook Page text and multi-image posts
 - Instagram image and carousel posts
 - Threads text, image, carousel, and automatic long-text reply chains
-- Bluesky images and automatic 300-character reply chains
+- Bluesky images, MP4 video, and automatic 300-character reply chains
 - Multiple attachments with previews, removal, and drag-to-reorder
 - Scheduled queue, calendars, delivery history, and per-platform receipts
 - Encrypted local credential vault

@@ -1,3 +1,4 @@
+import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +24,10 @@ class FakeBluesky(BlueskyClient):
         number = sum(call[0].endswith("createRecord") for call in self.calls)
         return {"uri": f"at://did:plc:test/app.bsky.feed.post/{number}", "cid": f"cid-{number}"}
 
+    def _video_request(self, method, nsid, payload=None):
+        self.calls.append((nsid, payload))
+        return {"jobStatus": {"jobId": "video-job", "state": "JOB_STATE_COMPLETED", "blob": {"$type": "blob", "ref": {"$link": "video-cid"}, "mimeType": "video/mp4", "size": 5}}}
+
 
 class BlueskyTests(unittest.TestCase):
     def test_split_is_bounded_and_preserves_text(self):
@@ -43,6 +48,13 @@ class BlueskyTests(unittest.TestCase):
         self.assertNotIn("reply", records[0])
         self.assertEqual(records[1]["reply"]["root"], refs[0])
         self.assertEqual(records[1]["reply"]["parent"], refs[0])
+
+    def test_publish_embeds_processed_video(self):
+        client = FakeBluesky()
+        client.publish("clip", [{"type": "video/mp4", "data": base64.b64encode(b"video").decode(), "alt": "A test clip"}])
+        record = next(payload["record"] for nsid, payload in client.calls if nsid.endswith("createRecord"))
+        self.assertEqual("app.bsky.embed.video", record["embed"]["$type"])
+        self.assertEqual("A test clip", record["embed"]["alt"])
 
     def test_login_includes_email_factor_token(self):
         client = FakeBluesky()

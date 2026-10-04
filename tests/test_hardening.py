@@ -27,9 +27,9 @@ class ValidationTests(unittest.TestCase):
         errors = validate_post(post(media=[{"type": "video/mp4", "data": "%%%"}]))
         self.assertTrue(any("base64" in error for error in errors))
 
-    def test_accepts_one_mp4_for_threads(self):
+    def test_accepts_one_mp4_for_connected_platforms(self):
         video = {"type": "video/mp4", "data": base64.b64encode(b"video").decode(), "alt": ""}
-        self.assertEqual([], validate_post(post(media=[video], destinations={"threads": "connected"})))
+        self.assertEqual([], validate_post(post(media=[video], destinations={"bluesky": "connected", "threads": "connected"})))
 
     def test_rejects_mixed_images_and_video(self):
         content = base64.b64encode(b"media").decode()
