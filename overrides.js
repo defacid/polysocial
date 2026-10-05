@@ -32,7 +32,7 @@ window.addEventListener('DOMContentLoaded', () => {
     .scheduled{border-top:0}
     .post-section{border:1px solid #7299ef66;border-radius:12px;background:#071c4659;overflow:hidden}.post-section+.post-section{margin-top:2px}
     .post-section>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 18px;color:#fff;cursor:pointer;list-style:none;font:800 25px Manrope,sans-serif}
-    .post-section>summary::-webkit-details-marker{display:none}.section-summary-actions{display:flex;align-items:center;gap:15px;margin-left:auto}.section-chevron{width:12px;height:12px;border-right:3px solid #b8caff;border-bottom:3px solid #b8caff;transform:rotate(45deg);transition:transform .18s ease;margin:0 5px 7px 0}.post-section:not([open]) .section-chevron{transform:rotate(-45deg);margin-bottom:0}.calendar-button{border:1px solid #7299ef;background:#17438f;border-radius:8px;padding:8px 11px;color:#fff;white-space:nowrap}
+    .post-section>summary::-webkit-details-marker{display:none}.section-summary-actions{display:flex;align-items:center;gap:15px;margin-left:auto}.section-chevron{width:12px;height:12px;border-right:3px solid #b8caff;border-bottom:3px solid #b8caff;transform:rotate(45deg);transition:transform .18s ease;margin:0 5px 7px 0}.post-section:not([open]) .section-chevron{transform:rotate(-45deg);margin-bottom:0}.calendar-button{border:1px solid #7299ef;background:#17438f;border-radius:8px;padding:8px 11px;color:#fff;white-space:nowrap}.delivery-queue-toggle{display:flex;align-items:center;gap:7px;color:#dce7ff;font:700 11px Manrope,sans-serif;white-space:nowrap;cursor:pointer}.delivery-queue-toggle input{appearance:none;position:relative;width:34px;height:19px;margin:0;border:1px solid #7299ef;border-radius:999px;background:#637bac;cursor:pointer;transition:.18s}.delivery-queue-toggle input::after{content:"";position:absolute;top:3px;left:3px;width:11px;height:11px;border-radius:50%;background:#fff;transition:.18s}.delivery-queue-toggle input:checked{background:#26a96e;border-color:#75e2aa}.delivery-queue-toggle input:checked::after{transform:translateX(15px)}.delivery-queue-toggle input:focus-visible{outline:2px solid #fff;outline-offset:2px}
     .post-section-content{padding:0 10px 10px}
     .scheduled-list,.history-list{display:grid;gap:2px}.empty-post-list{margin:0;padding:20px;border:1px dashed #7299ef77;border-radius:10px;color:#b8caff;text-align:center;font:600 13px Manrope,sans-serif}
     #destinations{margin-top:12px;margin-bottom:8px}
@@ -600,6 +600,8 @@ window.addEventListener('DOMContentLoaded', () => {
       event.stopImmediatePropagation();
       resetComposer();
       showToast('Draft cleared.');
+    } else if (event.target.closest('.delivery-queue-toggle')) {
+      event.stopImmediatePropagation();
     } else if (event.target.closest('.calendar-button')) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -782,12 +784,8 @@ window.addEventListener('DOMContentLoaded', () => {
     const response = await fetch('/api/connections', {cache: 'no-store'});
     if (!response.ok) return;
     const result = await response.json();
-    const queueControl = document.querySelector('#queueControl');
-    if (queueControl) {
-      queueControl.querySelector('strong').textContent = result.deliveryEnabled ? 'Delivery queue running' : 'Delivery queue paused';
-      queueControl.querySelector('button').textContent = result.deliveryEnabled ? 'Pause queue' : 'Resume queue';
-      queueControl.dataset.enabled = String(Boolean(result.deliveryEnabled));
-    }
+    const deliveryToggle = document.querySelector('#deliveryQueueToggle');
+    if (deliveryToggle) deliveryToggle.checked = Boolean(result.deliveryEnabled);
     for (const connection of result.connections) {
       const row = document.querySelector(`.setting-edit[data-platform="${connection.platform}"]`)?.closest('.setting-line');
       if (!row) continue;
@@ -883,25 +881,18 @@ window.addEventListener('DOMContentLoaded', () => {
     row.insertBefore(test, edit);
   });
 
-  const settingsDialog = document.querySelector('#settingsDialog');
-  if (settingsDialog && !document.querySelector('#queueControl')) {
-    const control = document.createElement('div');
-    control.id = 'queueControl';
-    control.className = 'queue-control';
-    const label = document.createElement('strong');
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.addEventListener('click', async () => {
-      const enabled = control.dataset.enabled !== 'true';
-      try {
-        await api('/api/settings/delivery', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled})});
-        await refreshConnections();
-        showToast(enabled ? 'Delivery queue resumed.' : 'Delivery queue paused.');
-      } catch (error) { showToast(error.message); }
-    });
-    control.append(label, toggle);
-    settingsDialog.append(control);
-  }
+  const deliveryToggle = document.querySelector('#deliveryQueueToggle');
+  if (deliveryToggle) deliveryToggle.addEventListener('change', async () => {
+    const enabled = deliveryToggle.checked;
+    deliveryToggle.disabled = true;
+    try {
+      await api('/api/settings/delivery', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled})});
+      showToast(enabled ? 'Scheduled delivery enabled.' : 'Scheduled delivery paused.');
+    } catch (error) {
+      deliveryToggle.checked = !enabled;
+      showToast(error.message);
+    } finally { deliveryToggle.disabled = false; }
+  });
 
   async function initialize() {
     try {
