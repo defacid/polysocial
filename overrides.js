@@ -616,7 +616,7 @@ window.addEventListener('DOMContentLoaded', () => {
     dialog = document.createElement('dialog');
     dialog.id = 'blueskyConnectionDialog';
     dialog.className = 'connection-dialog';
-    dialog.innerHTML = `<button class="dialog-close" type="button" aria-label="Close Bluesky connection">×</button><h2>Bluesky connection</h2><p class="connection-state" role="status">Not connected</p><form class="connection-form"><label>Handle<input name="handle" autocomplete="username" placeholder="your-handle.bsky.social" required></label><label>Bluesky app password<input name="password" type="password" autocomplete="current-password" required></label><label class="auth-factor" hidden>Email sign-in code<input name="authFactorToken" inputmode="numeric" autocomplete="one-time-code"></label><label class="delivery-toggle"><input name="delivery" type="checkbox"><span>Enable scheduled delivery</span></label><div class="connection-actions"><button class="connection-disconnect" type="button" hidden>Disconnect</button><button class="connection-save" type="submit">Save connection</button></div></form>`;
+    dialog.innerHTML = `<button class="dialog-close" type="button" aria-label="Close Bluesky connection">×</button><h2>Bluesky connection</h2><p class="connection-state" role="status">Not connected</p><form class="connection-form"><label>Handle<input name="handle" autocomplete="username" placeholder="your-handle.bsky.social" required></label><button class="connection-save bluesky-oauth" type="button">Continue with Bluesky OAuth</button><small class="meta-help">You'll approve Polysocial in Bluesky. No app password is needed.</small><details class="meta-advanced"><summary>Use an app password instead</summary><div class="meta-advanced-content"><label>Bluesky app password<input name="password" type="password" autocomplete="current-password"></label><label class="auth-factor" hidden>Email sign-in code<input name="authFactorToken" inputmode="numeric" autocomplete="one-time-code"></label><button class="connection-save" type="submit">Save app-password connection</button></div></details><label class="delivery-toggle"><input name="delivery" type="checkbox"><span>Enable scheduled delivery</span></label><div class="connection-actions"><button class="connection-disconnect" type="button" hidden>Disconnect</button></div></form>`;
     document.body.append(dialog);
     dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
     dialog.querySelector('.connection-disconnect').addEventListener('click', async () => {
@@ -626,6 +626,14 @@ window.addEventListener('DOMContentLoaded', () => {
       dialog.querySelector('[name=password]').value = '';
       await refreshConnections(dialog);
       showToast('Bluesky disconnected.');
+    });
+    dialog.querySelector('.bluesky-oauth').addEventListener('click', () => {
+      const handle = dialog.querySelector('[name=handle]').value.trim();
+      if (!handle) {
+        dialog.querySelector('.connection-state').textContent = 'Enter your Bluesky handle first.';
+        return;
+      }
+      window.location.assign(`/api/oauth/bluesky/start?handle=${encodeURIComponent(handle)}`);
     });
     dialog.querySelector('form').addEventListener('submit', async event => {
       event.preventDefault();

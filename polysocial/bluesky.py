@@ -8,6 +8,8 @@ import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from .bluesky_oauth import resource_request
+
 
 URL = re.compile(r"https?://[^\s]+")
 
@@ -51,16 +53,21 @@ def link_facets(text):
 
 
 class BlueskyClient:
-    def __init__(self, handle, password=None, service="https://bsky.social"):
+    def __init__(self, handle, password=None, service="https://bsky.social", oauth=None):
         self.handle = handle.lstrip("@")
         self.password = password
         self.service = service.rstrip("/")
         self.did = None
         self.access_token = None
         self.refresh_token = None
+        self.oauth = oauth
 
     def _request(self, method, nsid, payload=None, content_type="application/json"):
         body = payload if isinstance(payload, bytes) else (json.dumps(payload).encode() if payload is not None else None)
+        if self.oauth:
+            result = resource_request(self.oauth, method, f"{self.service}/xrpc/{nsid}", body, {"Content-Type": content_type})
+            self.access_token = self.oauth["accessToken"]
+            return result
         headers = {"Content-Type": content_type, "Accept": "application/json"}
         if self.access_token:
             headers["Authorization"] = f"Bearer {self.access_token}"
@@ -98,6 +105,11 @@ class BlueskyClient:
 
     def _video_request(self, method, nsid, payload=None):
         body = payload if isinstance(payload, bytes) else (json.dumps(payload).encode() if payload is not None else None)
+        if self.oauth:
+            headers = {"atproto-proxy": "did:web:video.bsky.app"}
+            if isinstance(payload, bytes):
+                headers["Content-Type"] = "video/mp4"
+            return resource_request(self.oauth, method, f"https://video.bsky.app/xrpc/{nsid}", body, headers)
         headers = {"Accept": "application/json", "atproto-proxy": "did:web:video.bsky.app"}
         if isinstance(payload, bytes):
             headers["Content-Type"] = "video/mp4"

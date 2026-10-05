@@ -7,6 +7,7 @@ import threading
 import time
 
 from .bluesky import BlueskyClient
+from .bluesky_oauth import refresh as refresh_bluesky_oauth
 from .media_urls import signed_url
 from .meta import MetaClient
 from .threads import ThreadsClient
@@ -67,6 +68,16 @@ class DeliveryWorker(threading.Thread):
         if platform == "bluesky":
             if not credentials.get("refreshToken"):
                 raise RuntimeError("Bluesky connection must be renewed before publishing")
+            if credentials.get("auth") == "oauth":
+                credentials = refresh_bluesky_oauth(credentials)
+                self.vault.set("bluesky", credentials)
+                client = BlueskyClient(credentials["handle"], service=credentials["service"], oauth=credentials)
+                refs = client.publish(text, media)
+                self.vault.set("bluesky", credentials)
+                first = refs[0]
+                handle = credentials["handle"].lstrip("@")
+                rkey = first["uri"].rsplit("/", 1)[-1]
+                return first["uri"], f"https://bsky.app/profile/{handle}/post/{rkey}", refs
             client = BlueskyClient(credentials["handle"], service=credentials.get("service", "https://bsky.social"))
             client.resume(credentials["refreshToken"])
             credentials["refreshToken"] = client.refresh_token

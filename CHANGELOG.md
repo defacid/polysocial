@@ -4,6 +4,7 @@ All notable changes are documented here. Polysocial follows Semantic Versioning.
 
 ## Unreleased
 
+- Add Bluesky OAuth with PKCE, PAR, and DPoP-bound tokens; retain app-password fallback.
 - Add Chromium browser tests for desktop and mobile composer workflows.
 - Record durable per-attempt delivery diagnostics and ambiguous outcomes.
 - Add global delivery queue pause and resume controls.

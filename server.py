@@ -3,7 +3,7 @@
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 from datetime import datetime, timedelta, timezone
 import argparse
 import json
@@ -13,6 +13,7 @@ import secrets
 import base64
 
 from polysocial.bluesky import BlueskyClient, BlueskyError
+from polysocial.bluesky_oauth import BlueskyOAuthError, SCOPE as BLUESKY_OAUTH_SCOPE, finish as finish_bluesky_oauth, start as start_bluesky_oauth
 from polysocial.meta import MetaClient, MetaError
 from polysocial.threads import ThreadsClient, ThreadsError
 from polysocial.storage import Storage
@@ -30,7 +31,7 @@ STORAGE = Storage(DATABASE)
 VAULT = CredentialVault(DATA_DIR / "credentials")
 PUBLIC_ORIGIN = os.environ.get("POLYSOCIAL_PUBLIC_ORIGIN", "").rstrip("/")
 AUTH_FILE = os.environ.get("POLYSOCIAL_AUTH_FILE", "").strip()
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 PUBLIC_FILES = {
     "/", "/index.html", "/app.js", "/overrides.js", "/styles.css",
     "/polysocial-brand.svg", "/defacid-logo-black.png",
@@ -77,7 +78,7 @@ def connection_summaries():
 
 class PreviewHandler(SimpleHTTPRequestHandler):
     def authorized(self):
-        if not AUTH_FILE or self.api_path() == "/api/status" or self.api_path().startswith("/api/media/"):
+        if not AUTH_FILE or self.api_path() in {"/api/status", "/api/oauth/bluesky/client-metadata"} or self.api_path().startswith("/api/media/"):
             return True
         try:
             expected = "Basic " + base64.b64encode(Path(AUTH_FILE).read_bytes().strip()).decode("ascii")
@@ -150,6 +151,53 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(content)
             except (ValueError, IndexError, KeyError, TypeError):
                 self.api_response(404, {"error": "Media not found"})
+            return
+        if path == "/api/oauth/bluesky/client-metadata":
+            origin = self.public_origin()
+            self.api_response(200, {
+                "client_id": f"{origin}/api/oauth/bluesky/client-metadata",
+                "application_type": "web",
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "redirect_uris": [f"{origin}/api/oauth/bluesky/callback"],
+                "scope": BLUESKY_OAUTH_SCOPE,
+                "token_endpoint_auth_method": "none",
+                "dpop_bound_access_tokens": True,
+                "client_name": "Polysocial",
+                "client_uri": origin,
+            })
+            return
+        if path == "/api/oauth/bluesky/start":
+            query = parse_qs(urlsplit(self.path).query)
+            try:
+                origin = self.public_origin()
+                client_id = f"{origin}/api/oauth/bluesky/client-metadata"
+                redirect_uri = f"{origin}/api/oauth/bluesky/callback"
+                pending = start_bluesky_oauth(query.get("handle", [""])[0], client_id, redirect_uri)
+                VAULT.set("bluesky-oauth", pending)
+                self.redirect(pending["authorizationEndpoint"] + "?" + urlencode({"client_id": client_id, "request_uri": pending["requestUri"]}))
+            except (BlueskyOAuthError, VaultError) as error:
+                self.redirect(f"/?bluesky_error={quote(str(error))}")
+            return
+        if path == "/api/oauth/bluesky/callback":
+            query = parse_qs(urlsplit(self.path).query)
+            try:
+                if query.get("error"):
+                    raise BlueskyOAuthError(query.get("error_description", query["error"])[0])
+                pending = VAULT.get("bluesky-oauth")
+                if not pending or not secrets.compare_digest(query.get("state", [""])[0], pending.get("state", "")):
+                    raise BlueskyOAuthError("Bluesky connection state was invalid or expired")
+                origin = self.public_origin()
+                credentials = finish_bluesky_oauth(pending, query.get("code", [""])[0], query.get("iss", [""])[0], f"{origin}/api/oauth/bluesky/client-metadata", f"{origin}/api/oauth/bluesky/callback")
+                credentials["clientId"] = f"{origin}/api/oauth/bluesky/client-metadata"
+                VAULT.set("bluesky", {**credentials, **token_dates(credentials.get("expiresIn"))})
+                VAULT.delete("bluesky-oauth")
+                STORAGE.set_connection("bluesky", f"@{credentials['handle']}")
+                STORAGE.requeue_platform("bluesky")
+                self.redirect("/?bluesky=connected")
+            except (BlueskyOAuthError, VaultError) as error:
+                VAULT.delete("bluesky-oauth")
+                self.redirect(f"/?bluesky_error={quote(str(error))}")
             return
         if path == "/api/oauth/meta/start":
             try:

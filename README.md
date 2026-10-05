@@ -8,7 +8,7 @@ Threads, and Bluesky.
 There are no Polysocial user accounts and no hosted Polysocial database. Posts,
 media, schedules, tokens, and receipts stay on the computer running the app.
 
-> **Project status:** v0.1 alpha. Use test accounts and review queued content.
+> **Project status:** v0.3 alpha. Use test accounts and review queued content.
 > Social APIs and their approval requirements change frequently.
 
 ## Features
@@ -64,8 +64,17 @@ placed an authentication layer in front of it.
 
 ### Bluesky
 
-Create an app password in Bluesky settings, then enter the handle and app
-password in Polysocial. If Bluesky emails a sign-in code, enter it when prompted.
+Use **Continue with Bluesky OAuth** in Settings and approve the limited posting
+permission in Bluesky. The public origin must use HTTPS and the OAuth metadata
+URL below must bypass Cloudflare Access (the rest of Polysocial can remain
+protected):
+
+```text
+https://social.example.com/api/oauth/bluesky/client-metadata
+```
+
+An app-password option remains available as a fallback. If Bluesky emails a
+sign-in code, enter it when prompted.
 
 ### Facebook and Instagram
 
